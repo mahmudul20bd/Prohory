@@ -8,8 +8,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SecurityIcon from "@mui/icons-material/Security";
 import axios from "axios";
 import Swal from "sweetalert2"; 
-
-const API_URL = "http://localhost:8080/api";
+import { API_URL } from './config';
 
 function App() {
   const [reports, setReports] = useState([]);

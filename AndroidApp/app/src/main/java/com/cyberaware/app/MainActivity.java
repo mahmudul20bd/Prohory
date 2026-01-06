@@ -40,8 +40,8 @@ public class MainActivity extends AppCompatActivity {
     // WebSocket Client
     private StompClient mStompClient;
 
-    // Server URL (আপনার আইপি এবং পোর্ট ঠিক আছে তো?)
-    private static final String BASE_URL = "http://192.168.0.104:8080/";
+    // 🔥 OLD HARDCODED URL REMOVED
+    // private static final String BASE_URL = "http://192.168.0.104:8080/";
 
     @SuppressLint("CheckResult")
     @Override
@@ -58,18 +58,18 @@ public class MainActivity extends AppCompatActivity {
         // 2. Initialize AI Engine
         spamDetector = new SpamDetector(this);
 
-        // 🔥 3. Notification Channel Create (Must for Android 8+)
+        // 3. Notification Channel Create (Must for Android 8+)
         createNotificationChannel();
 
-        // 🔥 4. Permission Logic (Updated for Android 13+)
+        // 4. Permission Logic (Updated for Android 13+)
         checkAndRequestPermissions();
 
-        // 🔥 5. Initialize WebSocket (Real-time Alert Listener)
+        // 5. Initialize WebSocket (Real-time Alert Listener)
         connectToWebSocket();
 
         // 6. Setup Retrofit (Dual Converter)
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(Constants.BASE_URL) // 🔥 UPDATE: Constants থেকে লিংক নিচ্ছে
                 .addConverterFactory(ScalarsConverterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
@@ -143,7 +143,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // 🔥 ID পরিবর্তন করেছি (V2) যাতে নতুন সেটিংস কাজ করে
             String channelId = "SCAM_ALERT_CHANNEL_V2";
             CharSequence name = "Scam Alerts";
             String description = "Notifications for detected scam messages";
@@ -152,9 +151,8 @@ public class MainActivity extends AppCompatActivity {
             NotificationChannel channel = new NotificationChannel(channelId, name, importance);
             channel.setDescription(description);
 
-            // 🔥 ভাইব্রেশন সেটিংস (Force Vibration)
             channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 500, 200, 500}); // থামবে, কাঁপবে, থামবে, কাঁপবে
+            channel.setVibrationPattern(new long[]{0, 500, 200, 500});
 
             NotificationManager notificationManager = getSystemService(NotificationManager.class);
             if (notificationManager != null) {
@@ -165,8 +163,10 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("CheckResult")
     private void connectToWebSocket() {
-        // IP Address (Check cmd -> ipconfig)
-        String wsUrl = "ws://192.168.0.104:8080/ws";
+        // 🔥 UPDATE: Constants থেকে আইপি নিয়ে অটোমেটিক WS লিংক বানাচ্ছে
+        // "http" কে "ws" দিয়ে বদলে দিচ্ছে। ফলে Constants ফাইলে একবার চেঞ্জ করলেই সব চেঞ্জ হবে।
+        String wsUrl = Constants.BASE_URL.replace("http", "ws") + "ws";
+
         Log.d("WebSocket", "Connecting to: " + wsUrl);
 
         if (mStompClient != null) {
@@ -186,7 +186,7 @@ public class MainActivity extends AppCompatActivity {
                             break;
                         case ERROR:
                             Log.e("WebSocket", "❌ Connection Error", lifecycleEvent.getException());
-                            showToast("🔴 Connection Failed");
+                            // showToast("🔴 Connection Failed"); // বারবার টোস্ট এড়াতে এটা অফ রাখতে পারেন
                             break;
                         case CLOSED:
                             Log.d("WebSocket", "⚠️ Connection Closed");
