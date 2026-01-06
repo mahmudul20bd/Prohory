@@ -1,7 +1,6 @@
 package com.cyberaware.app;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.pm.PackageManager;
@@ -9,12 +8,16 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.cardview.widget.CardView;
+
+import com.google.android.material.button.MaterialButton;
 
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.schedulers.Schedulers;
@@ -29,193 +32,133 @@ import ua.naiksoftware.stomp.StompClient;
 
 public class MainActivity extends AppCompatActivity {
 
-    // UI Components
     private EditText etSender, etMessage;
-    private Button btnScan;
-    private TextView tvResult;
+    private MaterialButton btnScan;
 
-    // AI Engine
+    private CardView cardResult;
+    private LinearLayout layoutResultBg;
+    private TextView tvResultTitle, tvResultBody;
+    private ImageView ivResultIcon;
+
     private SpamDetector spamDetector;
+    private StompClient stompClient;
 
-    // WebSocket Client
-    private StompClient mStompClient;
-
-    // 🔥 OLD HARDCODED URL REMOVED
-    // private static final String BASE_URL = "http://192.168.0.104:8080/";
-
-    @SuppressLint("CheckResult")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 1. View Initialization
+        // UI
         etSender = findViewById(R.id.etSender);
         etMessage = findViewById(R.id.etMessage);
         btnScan = findViewById(R.id.btnScan);
-        tvResult = findViewById(R.id.tvResult);
 
-        // 2. Initialize AI Engine
+        cardResult = findViewById(R.id.cardResult);
+        layoutResultBg = findViewById(R.id.layoutResultBg);
+        tvResultTitle = findViewById(R.id.tvResultTitle);
+        tvResultBody = findViewById(R.id.tvResultBody);
+        ivResultIcon = findViewById(R.id.ivResultIcon);
+
         spamDetector = new SpamDetector(this);
-
-        // 3. Notification Channel Create (Must for Android 8+)
         createNotificationChannel();
+        requestPermissionsIfNeeded();
+        connectWebSocket();
 
-        // 4. Permission Logic (Updated for Android 13+)
-        checkAndRequestPermissions();
-
-        // 5. Initialize WebSocket (Real-time Alert Listener)
-        connectToWebSocket();
-
-        // 6. Setup Retrofit (Dual Converter)
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(Constants.BASE_URL) // 🔥 UPDATE: Constants থেকে লিংক নিচ্ছে
+                .baseUrl(Constants.BASE_URL)
                 .addConverterFactory(ScalarsConverterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
 
-        ApiService apiService = retrofit.create(ApiService.class);
+        ApiService api = retrofit.create(ApiService.class);
 
-        // 7. Button Logic
-        btnScan.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                String sender = etSender.getText().toString().trim();
-                String message = etMessage.getText().toString().trim();
+        btnScan.setOnClickListener(v -> {
+            String sender = etSender.getText().toString().trim();
+            String msg = etMessage.getText().toString().trim();
 
-                if (sender.isEmpty() || message.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "Please fill all fields!", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                // AI Check (Offline)
-                String localResult = spamDetector.classify(message);
-                tvResult.setText("🤖 AI Check (Offline): " + localResult + "\n\n☁️ Server: Syncing...");
-
-                // Send to Server
-                btnScan.setEnabled(false);
-                ReportRequest request = new ReportRequest(sender, message);
-
-                apiService.sendReport(request).enqueue(new Callback<String>() {
-                    @Override
-                    public void onResponse(Call<String> call, Response<String> response) {
-                        btnScan.setEnabled(true);
-                        if (response.isSuccessful() && response.body() != null) {
-                            String serverReply = response.body();
-                            tvResult.setText("🤖 AI Check: " + localResult + "\n☁️ Server Says: " + serverReply);
-                        } else {
-                            tvResult.setText("🤖 AI Check: " + localResult + "\n☁️ Server Error: " + response.code());
-                        }
-                    }
-
-                    @Override
-                    public void onFailure(Call<String> call, Throwable t) {
-                        btnScan.setEnabled(true);
-                        tvResult.setText("🤖 AI Check: " + localResult + "\n☁️ Server: Offline/Failed (" + t.getMessage() + ")");
-                        Log.e("CyberAware", "Network Error: " + t.getMessage());
-                    }
-                });
+            if (sender.isEmpty() || msg.isEmpty()) {
+                toast("Fill all fields");
+                return;
             }
+
+            String aiResult = spamDetector.classify(msg);
+            showResult(aiResult, "🤖 AI Result: " + aiResult);
+
+            btnScan.setEnabled(false);
+            btnScan.setText("Scanning...");
+
+            api.sendReport(new ReportRequest(sender, msg))
+                    .enqueue(new Callback<String>() {
+                        @Override
+                        public void onResponse(Call<String> call, Response<String> response) {
+                            btnScan.setEnabled(true);
+                            btnScan.setText("CHECK FOR SCAM");
+
+                            if ("SCAM".equals(aiResult) || "SUSPICIOUS".equals(aiResult)) {
+                                showResult(aiResult, "⚠️ AI Warning\nServer: " + response.body());
+                            } else {
+                                showResult("SAFE", "✅ AI Verified Safe\nServer: " + response.body());
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<String> call, Throwable t) {
+                            btnScan.setEnabled(true);
+                            btnScan.setText("CHECK FOR SCAM");
+                            showResult(aiResult, "Server Offline\nShowing AI Result");
+                        }
+                    });
         });
     }
 
-    // ================= HELPER METHODS =================
+    // ================= RESULT UI =================
+    private void showResult(String status, String body) {
+        cardResult.setVisibility(View.VISIBLE);
 
-    private void checkAndRequestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+ (SMS + Notification)
-            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED ||
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-
-                requestPermissions(new String[]{
-                        Manifest.permission.RECEIVE_SMS,
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.POST_NOTIFICATIONS
-                }, 101);
-            }
+        if ("SCAM".equals(status) || "SUSPICIOUS".equals(status)) {
+            layoutResultBg.setBackgroundColor(getColor(R.color.danger_red));
+            tvResultTitle.setText("⚠️ SCAM / SUSPICIOUS");
         } else {
-            // Older Android (Only SMS)
-            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS}, 101);
+            layoutResultBg.setBackgroundColor(getColor(R.color.safe_green));
+            tvResultTitle.setText("✅ SAFE MESSAGE");
+        }
+        tvResultBody.setText(body);
+        ivResultIcon.setImageResource(R.drawable.baseline_shield_24);
+    }
+
+    // ================= HELPERS =================
+    private void toast(String m) {
+        Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
+    }
+
+    private void requestPermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);
             }
         }
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            String channelId = "SCAM_ALERT_CHANNEL_V2";
-            CharSequence name = "Scam Alerts";
-            String description = "Notifications for detected scam messages";
-
-            int importance = NotificationManager.IMPORTANCE_HIGH;
-            NotificationChannel channel = new NotificationChannel(channelId, name, importance);
-            channel.setDescription(description);
-
-            channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 500, 200, 500});
-
-            NotificationManager notificationManager = getSystemService(NotificationManager.class);
-            if (notificationManager != null) {
-                notificationManager.createNotificationChannel(channel);
-            }
+            NotificationChannel ch = new NotificationChannel(
+                    "SCAM_ALERT", "Scam Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            getSystemService(NotificationManager.class).createNotificationChannel(ch);
         }
     }
 
-    @SuppressLint("CheckResult")
-    private void connectToWebSocket() {
-        // 🔥 UPDATE: Constants থেকে আইপি নিয়ে অটোমেটিক WS লিংক বানাচ্ছে
-        // "http" কে "ws" দিয়ে বদলে দিচ্ছে। ফলে Constants ফাইলে একবার চেঞ্জ করলেই সব চেঞ্জ হবে।
+    private void connectWebSocket() {
         String wsUrl = Constants.BASE_URL.replace("http", "ws") + "ws";
+        stompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl);
+        stompClient.connect();
 
-        Log.d("WebSocket", "Connecting to: " + wsUrl);
-
-        if (mStompClient != null) {
-            mStompClient.disconnect();
-        }
-
-        mStompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl);
-
-        mStompClient.lifecycle()
+        stompClient.topic("/topic/alerts")
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(lifecycleEvent -> {
-                    switch (lifecycleEvent.getType()) {
-                        case OPENED:
-                            Log.d("WebSocket", "✅ Connection Opened");
-                            showToast("🟢 Connected to Server");
-                            break;
-                        case ERROR:
-                            Log.e("WebSocket", "❌ Connection Error", lifecycleEvent.getException());
-                            // showToast("🔴 Connection Failed"); // বারবার টোস্ট এড়াতে এটা অফ রাখতে পারেন
-                            break;
-                        case CLOSED:
-                            Log.d("WebSocket", "⚠️ Connection Closed");
-                            break;
-                    }
-                });
-
-        mStompClient.connect();
-
-        mStompClient.topic("/topic/alerts")
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(topicMessage -> {
-                    Log.d("WebSocket", "📩 Alert: " + topicMessage.getPayload());
-                    showToast("⚠️ " + topicMessage.getPayload());
-                }, throwable -> {
-                    Log.e("WebSocket", "Subscription Error", throwable);
-                });
-    }
-
-    private void showToast(String message) {
-        Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (mStompClient != null) {
-            mStompClient.disconnect();
-        }
+                .subscribe(msg -> toast("⚠️ " + msg.getPayload()),
+                        e -> Log.e("WS", "Error", e));
     }
 }

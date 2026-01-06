@@ -3,9 +3,8 @@ package com.cyberaware.app;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.util.Log;
-import org.json.JSONObject;
+
 import org.tensorflow.lite.Interpreter;
-import org.tensorflow.lite.Interpreter.Options;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -13,8 +12,9 @@ import java.io.InputStream;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 public class SpamDetector {
@@ -22,155 +22,113 @@ public class SpamDetector {
     private Interpreter tflite;
     private Map<String, Integer> vocab;
     private static final int MAX_LEN = 150;
-    private String initializationError = null;
+    private String initError = null;
 
     public SpamDetector(Context context) {
         try {
-            // ১. ভোকাবুলারি লোড
-            vocab = loadVocab(context, "vocab.json"); // আপনার ফাইলের নাম
-
-            // ২. মডেল লোড (Flex Delegate অপশন সহ)
-            Interpreter.Options options = new Interpreter.Options();
-            tflite = new Interpreter(loadModelFile(context, "cyberaware_model.tflite"), options);
-
+            vocab = loadVocab(context, "vocab.json");
+            tflite = new Interpreter(loadModelFile(context, "cyberaware_model.tflite"));
         } catch (Exception e) {
-            e.printStackTrace();
-            initializationError = "Error Init: " + e.getMessage();
+            initError = e.getMessage();
         }
     }
 
     public String classify(String text) {
-        if (initializationError != null) return initializationError;
-        if (tflite == null || vocab == null) return "Model Not Loaded";
+        if (initError != null) return "ERROR_INIT";
+        if (text == null || text.isEmpty()) return "SAFE";
+
+        // 🔥 RULE ENGINE (HIGHEST PRIORITY)
+        String ruleResult = ruleCheck(text);
+        if (ruleResult != null) return ruleResult;
 
         try {
-            String ruleResult = checkRules(text);
-            if (ruleResult != null) return ruleResult;
+            float[][] input = preprocess(text);
+            float[][] output = new float[1][3];
 
-            Object[] inputs = { preprocess(text) };
-            Map<Integer, Object> outputs = new HashMap<>();
-            float[][] outputArray = new float[1][3];
-            outputs.put(0, outputArray);
+            tflite.run(input, output);
 
-            tflite.runForMultipleInputsOutputs(inputs, outputs);
+            float safe = output[0][0];
+            float scam = output[0][1];
+            float suspicious = output[0][2];
 
-            float probSafe = outputArray[0][0];
-            float probScam = outputArray[0][1];
-            float probSus = outputArray[0][2];
+            Log.d("AI", "Safe=" + safe + " Scam=" + scam + " Susp=" + suspicious);
 
-            Log.d("CyberAwareAI", "AI Scores -> Safe: " + probSafe + " | Scam: " + probScam);
+            if (scam > safe && scam > suspicious) return "SCAM";
+            if (suspicious > safe && suspicious > scam) return "SUSPICIOUS";
 
-            if (probScam > probSafe && probScam > probSus) return "🚨 SCAM DETECTED! (AI)";
-            if (probSus > probSafe && probSus > probScam) return "⚠️ SUSPICIOUS (AI)";
-
-            return "✅ SAFE MESSAGE";
+            return "SAFE";
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return "Run Error: " + e.getMessage();
+            return "ERROR_RUN";
         }
     }
 
-    private float[][] preprocess(String text) {
-        String normalized = Normalizer.normalize(text, Normalizer.Form.NFKD).replaceAll("\\p{M}", "");
-        String cleanText = normalized.toLowerCase().replaceAll("[^a-zA-Z0-9\u0980-\u09FF]", " ");
+    // ================= RULE ENGINE =================
+    private String ruleCheck(String text) {
+        String t = text.toLowerCase();
 
-        String[] words = cleanText.trim().split("\\s+");
-        java.util.List<Integer> tokenList = new java.util.ArrayList<>();
+        if (t.contains("bit.ly") || t.contains("cutt.ly") || t.contains("tinyurl"))
+            return "SUSPICIOUS";
 
-        for (String word : words) {
-            if (vocab.containsKey(word)) {
-                tokenList.add(vocab.get(word));
-            }
-        }
+        if (t.contains("otp") || t.contains("verify") || t.contains("account blocked"))
+            return "SCAM";
 
-        // Pre-Padding
-        float[] sequence = new float[MAX_LEN];
-        int dataLen = tokenList.size();
-        int startPos = MAX_LEN - dataLen;
-        if (startPos < 0) startPos = 0;
-
-        for (int i = 0; i < dataLen && i < MAX_LEN; i++) {
-            sequence[startPos + i] = (float) tokenList.get(i); // Float Cast
-        }
-        return new float[][]{sequence};
-    }
-
-    private String checkRules(String text) {
-        String lowerText = text.toLowerCase();
-        // Whitelist
-        if (lowerText.contains("bkash.com") || lowerText.contains("gp.com")) return null;
-
-        // Suspicious Links
-        if (lowerText.contains("bit.ly") || lowerText.contains("cutt.ly") || lowerText.contains("tinyurl"))
-            return "⚠️ SUSPICIOUS LINK DETECTED";
+        if (t.contains("bkash.com") || t.contains("gp.com"))
+            return null;
 
         return null;
     }
 
-    // JSON Loader (Memory Efficient)
-    private Map<String, Integer> loadVocab(Context context, String jsonFilename) throws IOException {
-        Map<String, Integer> map = new HashMap<>();
-        InputStream is = context.getAssets().open(jsonFilename);
-        android.util.JsonReader reader = new android.util.JsonReader(new java.io.InputStreamReader(is, "UTF-8"));
-        reader.setLenient(true);
-        try {
-            parseJsonStream(reader, map);
-        } finally {
-            reader.close();
+    // ================= PREPROCESS =================
+    private float[][] preprocess(String text) {
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFKD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .replaceAll("[^a-z0-9\u0980-\u09FF]", " ");
+
+        String[] words = normalized.trim().split("\\s+");
+        List<Integer> tokens = new ArrayList<>();
+
+        for (String w : words) {
+            if (vocab.containsKey(w)) tokens.add(vocab.get(w));
         }
+
+        float[] seq = new float[MAX_LEN];
+        int start = Math.max(0, MAX_LEN - tokens.size());
+
+        for (int i = 0; i < tokens.size() && i < MAX_LEN; i++) {
+            seq[start + i] = tokens.get(i);
+        }
+
+        return new float[][]{seq};
+    }
+
+    // ================= LOADERS =================
+    private Map<String, Integer> loadVocab(Context ctx, String file) throws IOException {
+        Map<String, Integer> map = new HashMap<>();
+        InputStream is = ctx.getAssets().open(file);
+        android.util.JsonReader reader =
+                new android.util.JsonReader(new java.io.InputStreamReader(is));
+
+        reader.beginObject();
+        while (reader.hasNext()) {
+            String key = reader.nextName();
+            if (reader.peek() == android.util.JsonToken.NUMBER) {
+                map.put(key, reader.nextInt());
+            } else {
+                reader.skipValue();
+            }
+        }
+        reader.endObject();
+        reader.close();
         return map;
     }
 
-    private void parseJsonStream(android.util.JsonReader reader, Map<String, Integer> map) throws IOException {
-        try {
-            if (reader.peek() == android.util.JsonToken.BEGIN_OBJECT) {
-                reader.beginObject();
-                while (reader.hasNext()) {
-                    String name = reader.nextName();
-                    if (name.equals("word_index") || name.equals("vocab")) {
-                        readWordMap(reader, map);
-                    } else if (name.equals("config")) {
-                        reader.beginObject();
-                        while (reader.hasNext()) {
-                            if (reader.nextName().equals("word_index")) readWordMap(reader, map);
-                            else reader.skipValue();
-                        }
-                        reader.endObject();
-                    } else if (name.equals("model_config")) { // HuggingFace format support
-                        reader.skipValue();
-                    } else {
-                        // Flat format check
-                        if (reader.peek() == android.util.JsonToken.NUMBER) {
-                            map.put(name, reader.nextInt());
-                        } else {
-                            reader.skipValue();
-                        }
-                    }
-                }
-                reader.endObject();
-            }
-        } catch (Exception e) { e.printStackTrace(); }
-    }
-
-    private void readWordMap(android.util.JsonReader reader, Map<String, Integer> map) throws IOException {
-        if (reader.peek() == android.util.JsonToken.BEGIN_OBJECT) {
-            reader.beginObject();
-            while (reader.hasNext()) {
-                String key = reader.nextName();
-                if (reader.peek() == android.util.JsonToken.NUMBER) map.put(key, reader.nextInt());
-                else reader.skipValue();
-            }
-            reader.endObject();
-        } else {
-            reader.skipValue();
-        }
-    }
-
-    private MappedByteBuffer loadModelFile(Context context, String modelPath) throws IOException {
-        AssetFileDescriptor fileDescriptor = context.getAssets().openFd(modelPath);
-        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
+    private MappedByteBuffer loadModelFile(Context ctx, String path) throws IOException {
+        AssetFileDescriptor fd = ctx.getAssets().openFd(path);
+        FileInputStream fis = new FileInputStream(fd.getFileDescriptor());
+        FileChannel channel = fis.getChannel();
+        return channel.map(FileChannel.MapMode.READ_ONLY,
+                fd.getStartOffset(), fd.getDeclaredLength());
     }
 }
