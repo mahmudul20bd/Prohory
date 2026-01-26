@@ -1,6 +1,7 @@
 package com.cyberaware.app;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
@@ -11,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
+import android.view.animation.OvershootInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -43,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton btnScan, btnCloseResult;
     private LottieAnimationView lottieScanner;
     private LinearLayout inputContainer;
+    private View statusDot; // For Blinking Animation
 
     // Result UI
     private CardView cardResult;
@@ -50,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvResultTitle, tvResultBody;
     private ImageView ivResultIcon;
 
+    // Logic
     private StompClient stompClient;
 
     @Override
@@ -64,12 +68,20 @@ public class MainActivity extends AppCompatActivity {
         btnCloseResult = findViewById(R.id.btnCloseResult);
         lottieScanner = findViewById(R.id.lottieScanner);
         inputContainer = findViewById(R.id.inputContainer);
+        statusDot = findViewById(R.id.statusDot); // Status Dot খুঁজে নেওয়া
 
+        // Result Views
         cardResult = findViewById(R.id.cardResult);
         layoutResultBg = findViewById(R.id.layoutResultBg);
         tvResultTitle = findViewById(R.id.tvResultTitle);
         tvResultBody = findViewById(R.id.tvResultBody);
         ivResultIcon = findViewById(R.id.ivResultIcon);
+
+        // --- 1. Status Dot Blinking Animation (Added Here) ---
+        ObjectAnimator animator = ObjectAnimator.ofFloat(statusDot, "alpha", 1f, 0.3f, 1f);
+        animator.setDuration(2000); // 2 seconds pulse
+        animator.setRepeatCount(ObjectAnimator.INFINITE);
+        animator.start();
 
         // --- Background Setup ---
         // Load AI Model in background thread to prevent ANR
@@ -103,17 +115,17 @@ public class MainActivity extends AppCompatActivity {
 
             // 1. Hide Input & Keyboard, Start Animation
             hideKeyboard();
-            inputContainer.animate().alpha(0f).setDuration(300).withEndAction(() -> inputContainer.setVisibility(View.INVISIBLE));
+            inputContainer.animate().alpha(0f).translationY(50f).setDuration(400).withEndAction(() -> inputContainer.setVisibility(View.INVISIBLE));
             lottieScanner.playAnimation();
             cardResult.setVisibility(View.GONE);
 
-            // 2. Run AI Analysis (Simulated delay for effect)
+            // 2. Run AI Analysis (Simulated delay for "Scanning" effect)
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
 
                 // AI Check
                 String aiResult = SpamDetector.getInstance(this).classify(msg);
 
-                // Show Result on UI
+                // Show Result with Animation
                 showDetailedResult(aiResult, "Analysis Complete.");
 
                 // Send to Server (Backend Reporting)
@@ -121,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
                         .enqueue(new Callback<String>() {
                             @Override
                             public void onResponse(Call<String> call, Response<String> response) {
-                                // Server feedback can be appended if needed
                                 Log.d("API", "Server Response: " + response.body());
                             }
                             @Override
@@ -130,51 +141,72 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
 
-            }, 2000); // 2 second cool scanning effect
+            }, 2000); // 2 second delay for cool effect
         });
 
+        // Close/Dismiss Button
         btnCloseResult.setOnClickListener(v -> resetUI());
     }
 
+    // --- High-End Result Animation & Logic ---
     private void showDetailedResult(String status, String subText) {
-     //   lottieScanner.pauseAnimation();
         cardResult.setVisibility(View.VISIBLE);
         cardResult.setAlpha(0f);
         cardResult.setScaleX(0.8f);
         cardResult.setScaleY(0.8f);
 
-        // Pop-up animation for result card
+        // Physics-based Bouncy Animation (OvershootInterpolator)
         cardResult.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(400)
-                .setInterpolator(new android.view.animation.OvershootInterpolator())
+                .setDuration(500)
+                .setInterpolator(new OvershootInterpolator(1.2f)) // Bounce effect
                 .start();
 
         if ("SCAM".equals(status) || "SUSPICIOUS".equals(status)) {
-            // Danger UI
-            layoutResultBg.setBackgroundColor(getColor(R.color.danger_red));
-            tvResultTitle.setText("⚠️ THREAT DETECTED");
-            tvResultBody.setText("This message contains suspicious patterns (Phishing/Spam).");
+            // DANGER UI (Cyberpunk Red)
+            tvResultTitle.setText("THREAT DETECTED");
+            tvResultTitle.setTextColor(ContextCompat.getColor(this, R.color.alert_crimson));
+
+            tvResultBody.setText("Content flagged as suspicious by Neural Engine.");
+
             ivResultIcon.setImageResource(R.drawable.baseline_shield_24);
+            ivResultIcon.setColorFilter(ContextCompat.getColor(this, R.color.alert_crimson));
+
         } else {
-            // Safe UI
-            layoutResultBg.setBackgroundColor(getColor(R.color.safe_green));
-            tvResultTitle.setText("✅ SYSTEM SAFE");
-            tvResultBody.setText("No malicious content detected by Neural Engine.");
+            // SAFE UI (Hacker Green)
+            tvResultTitle.setText("SYSTEM SECURE");
+            tvResultTitle.setTextColor(ContextCompat.getColor(this, R.color.hacker_green));
+
+            tvResultBody.setText("No malicious patterns found in analysis.");
+
             ivResultIcon.setImageResource(R.drawable.baseline_shield_24);
+            ivResultIcon.setColorFilter(ContextCompat.getColor(this, R.color.hacker_green));
         }
     }
 
     private void resetUI() {
-        cardResult.animate().alpha(0f).setDuration(300).withEndAction(() -> cardResult.setVisibility(View.GONE));
+        // Hide Result Card with Fade Out
+        cardResult.animate()
+                .alpha(0f)
+                .scaleX(0.8f)
+                .scaleY(0.8f)
+                .setDuration(300)
+                .withEndAction(() -> cardResult.setVisibility(View.GONE));
+
+        // Show Input Fields with Fade In & Slide Up
         inputContainer.setVisibility(View.VISIBLE);
-        inputContainer.animate().alpha(1f).setDuration(300);
+        inputContainer.setTranslationY(50f);
+        inputContainer.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(400)
+                .setInterpolator(new OvershootInterpolator());
 
         etMessage.setText("");
         etSender.setText("");
-        lottieScanner.setProgress(0f);
+        // lottieScanner.pauseAnimation(); // Optional: Keep it running for active feel
     }
 
     private void hideKeyboard() {

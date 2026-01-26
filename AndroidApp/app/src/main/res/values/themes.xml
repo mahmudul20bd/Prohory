@@ -1,13 +1,18 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.CyberAware" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/cyber_blue</item>
-        <item name="colorPrimaryVariant">@color/cyber_card</item>
-        <item name="colorOnPrimary">@color/white</item>
 
-        <item name="colorSecondary">@color/cyber_neon</item>
-        <item name="colorSecondaryVariant">@color/cyber_neon</item>
-        <item name="colorOnSecondary">@color/black</item>
+        <item name="colorPrimary">@color/electric_cyan</item>
+        <item name="colorPrimaryVariant">@color/mid_night</item>
+        <item name="colorOnPrimary">@color/deep_space</item>
 
-        <item name="android:statusBarColor">@color/cyber_bg</item>
-        <item name="android:windowLightStatusBar">false</item> </style>
+        <item name="colorSecondary">@color/alert_crimson</item>
+        <item name="colorSecondaryVariant">@color/alert_crimson</item>
+        <item name="colorOnSecondary">@color/white</item>
+
+        <item name="android:statusBarColor">@color/deep_space</item>
+        <item name="android:windowLightStatusBar">false</item> <item name="android:windowBackground">@drawable/bg_cyber_gradient</item>
+
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textColorHint">@color/text_secondary</item>
+    </style>
 </resources>

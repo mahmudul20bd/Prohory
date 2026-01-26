@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
 
-    <color name="cyber_bg">#0F172A</color>
-    <color name="cyber_card">#1E293B</color>
-    <color name="cyber_blue">#0EA5E9</color>
-    <color name="cyber_neon">#38BDF8</color>
-    <color name="safe_green">#22C55E</color>
-    <color name="danger_red">#EF4444</color>
-    <color name="text_primary">#F8FAFC</color>
+    <color name="deep_space">#0B1021</color>
+    <color name="mid_night">#1B2440</color>
+    <color name="spotlight">#17406D</color>
+    <color name="electric_cyan">#00E5FF</color>
+    <color name="hacker_green">#00FF9D</color>
+    <color name="alert_crimson">#FF1744</color>
+    <color name="glass_surface">#20FFFFFF</color>
+    <color name="glass_border">#30FFFFFF</color>
+    <color name="text_primary">#F0F4F8</color>
     <color name="text_secondary">#94A3B8</color>
-    <color name="input_box_bg">#334155</color>
 </resources>
