@@ -2,17 +2,14 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-        <color name="purple_200">#FFBB86FC</color>
-        <color name="purple_500">#6200EE</color>
-        <color name="purple_700">#3700B3</color>
-        <color name="teal_200">#03DAC5</color>
-        <color name="teal_700">#018786</color>
 
-        <color name="cyber_blue">#1A237E</color>
-    <color name="cyber_bg">#F5F7FA</color>
-    <color name="safe_green">#2E7D32</color>
-    <color name="danger_red">#C62828</color>
+    <color name="cyber_bg">#0F172A</color>
+    <color name="cyber_card">#1E293B</color>
+    <color name="cyber_blue">#0EA5E9</color>
+    <color name="cyber_neon">#38BDF8</color>
+    <color name="safe_green">#22C55E</color>
+    <color name="danger_red">#EF4444</color>
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="input_box_bg">#334155</color>
 </resources>
-
-
-

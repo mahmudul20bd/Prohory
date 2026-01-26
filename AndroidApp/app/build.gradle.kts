@@ -57,4 +57,11 @@ dependencies {
     implementation(libs.stompprotocolandroid)
     implementation(libs.rxjava)
     implementation(libs.rxandroid)
+
+    // Modern UI Components
+    implementation("com.google.android.material:material:1.11.0")
+// Animation Library (Lottie)
+    implementation("com.airbnb.android:lottie:6.3.0")
+// আপনার প্রজেক্টে এগুলো ইতিমধ্যে আছে, তাই চিন্তা নেই
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
 }

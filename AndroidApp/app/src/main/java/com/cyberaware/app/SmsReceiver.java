@@ -22,49 +22,56 @@ import retrofit2.converter.scalars.ScalarsConverterFactory;
 
 public class SmsReceiver extends BroadcastReceiver {
 
-    // 🔥 আপনার সার্ভারের আইপি এখানে বসান (MainActivity র মতো সেইম হতে হবে)
-    private static final String BASE_URL = "http://192.168.0.104:8080/";
-
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent.getAction().equals("android.provider.Telephony.SMS_RECEIVED")) {
-            Bundle bundle = intent.getExtras();
-            if (bundle != null) {
-                Object[] pdus = (Object[]) bundle.get("pdus");
-                if (pdus != null) {
-                    for (Object pdu : pdus) {
-                        SmsMessage sms = SmsMessage.createFromPdu((byte[]) pdu);
-                        String sender = sms.getOriginatingAddress();
-                        String messageBody = sms.getMessageBody();
+            final PendingResult pendingResult = goAsync();
+            new Thread(() -> {
+                try {
+                    Bundle bundle = intent.getExtras();
+                    if (bundle != null) {
+                        Object[] pdus = (Object[]) bundle.get("pdus");
+                        if (pdus != null) {
+                            for (Object pdu : pdus) {
+                                SmsMessage sms = SmsMessage.createFromPdu((byte[]) pdu);
+                                String sender = sms.getOriginatingAddress();
+                                String messageBody = sms.getMessageBody();
 
-                        // AI চেক করা এবং প্রয়োজনে সার্ভারে পাঠানো
-                        checkSMSAndReport(context, sender, messageBody);
+                                checkSMSAndReport(context, sender, messageBody);
+                            }
+                        }
                     }
+                } finally {
+                    pendingResult.finish();
                 }
-            }
+            }).start();
         }
     }
 
     private void checkSMSAndReport(Context context, String sender, String message) {
-        SpamDetector detector = new SpamDetector(context);
+        // ================= FIX IS HERE =================
+        // আগে ছিল: SpamDetector detector = new SpamDetector(context);
+        // এখন হবে: getInstance() ব্যবহার করতে হবে
+        SpamDetector detector = SpamDetector.getInstance(context);
+        // ===============================================
+
         String result = detector.classify(message);
 
-        // ১. যদি লোকাল AI বলে এটা স্ক্যাম
+        // যদি লোকাল AI বলে এটা স্ক্যাম
         if (result.contains("SCAM") || result.contains("SUSPICIOUS")) {
             Log.d("CyberAware", "⚠️ SCAM DETECTED! Reporting to User & Server...");
 
             // A. ইউজারকে নোটিফিকেশন দিন
             showScamNotification(context, sender, message);
 
-            // B. 🔥 সার্ভারে অটোমেটিক রিপোর্ট পাঠান (Background)
+            // B. সার্ভারে অটোমেটিক রিপোর্ট পাঠান (Background)
             sendReportToServer(sender, message);
         }
     }
 
     private void sendReportToServer(String sender, String message) {
-        // Retrofit সেটআপ (Background Call)
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(Constants.BASE_URL)
                 .addConverterFactory(ScalarsConverterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
@@ -94,8 +101,7 @@ public class SmsReceiver extends BroadcastReceiver {
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         PendingIntent pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE);
 
-        // V2 চ্যানেল আইডি ব্যবহার করবেন (যেটাতে ভাইব্রেশন আছে)
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "SCAM_ALERT_CHANNEL_V2")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "SCAM_ALERT")
                 .setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle("🚨 Dangerous SMS Detected!")
                 .setContentText("Sender: " + sender)
