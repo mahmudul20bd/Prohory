@@ -16,7 +16,20 @@ public class Report {
     // ডাটাবেসে কলামের নাম ai_result, কিন্তু জাভাতে আমরা aiResult ব্যবহার করি
     @Column(name = "ai_result")
     private String aiResult;
+    // 🔥 নতুন ফিল্ড
+    private String reporter;
 
+    // Constructor আপডেট
+    public Report(String sender, String message, String aiResult, String reporter) {
+        this.sender = sender;
+        this.message = message;
+        this.aiResult = aiResult;
+        this.reporter = reporter; // সেট করা হলো
+    }
+
+    // Getter & Setter
+    public String getReporter() { return reporter; }
+    public void setReporter(String reporter) { this.reporter = reporter; }
     public Report() {
     }
 

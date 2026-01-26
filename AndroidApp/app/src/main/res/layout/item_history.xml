@@ -3,29 +3,42 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginVertical="6dp"
     app:cardCornerRadius="12dp"
-    app:cardBackgroundColor="#20FFFFFF"
-    app:cardElevation="0dp"
-    android:layout_marginBottom="12dp">
+    app:cardBackgroundColor="#15FFFFFF"
+    app:cardElevation="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/ivStatusIcon"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/baseline_shield_24"
+            app:tint="@color/hacker_green"
+            android:background="@drawable/bg_glass_card"
+            android:padding="8dp"/>
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
 
-            <ImageView
-                android:id="@+id/ivStatusIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/baseline_shield_24"
-                app:tint="@color/hacker_green"/>
+            <TextView
+                android:id="@+id/tvSender"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Unknown Sender"
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"/>
 
             <TextView
                 android:id="@+id/tvStatus"
@@ -34,28 +47,27 @@
                 android:text="SAFE"
                 android:fontFamily="@font/orbitron_bold"
                 android:textColor="@color/hacker_green"
-                android:textSize="14sp"
-                android:layout_marginStart="10dp"/>
-
-            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+                android:textSize="14sp"/>
 
             <TextView
-                android:id="@+id/tvDate"
+                android:id="@+id/tvMessagePreview"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="12 Oct, 10:30 PM"
-                android:textColor="@color/text_secondary"
-                android:textSize="10sp"/>
+                android:text="Click to view details..."
+                android:textColor="@color/white"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:alpha="0.7"/>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvMessagePreview"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Message preview content..."
-            android:textColor="@color/white"
-            android:maxLines="2"
-            android:ellipsize="end"
-            android:layout_marginTop="8dp"/>
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="?attr/homeAsUpIndicator"
+            android:rotation="180"
+            app:tint="@color/text_secondary"/>
+
     </LinearLayout>
+
 </androidx.cardview.widget.CardView>

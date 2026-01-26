@@ -16,6 +16,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    // 🔥 নতুন ফিল্ড
+    private String role;
+    private String clearanceLevel;
     public User() {
     }
 
@@ -23,6 +26,20 @@ public class User {
         this.username = username;
         this.password = password;
     }
+
+    // কনস্ট্রাক্টর আপডেট
+    public User(String username, String password, String role, String clearanceLevel) {
+        this.username = username;
+        this.password = password;
+        this.role = role;
+        this.clearanceLevel = clearanceLevel;
+    }
+
+    // Getters & Setters যোগ করতে ভুলবেন না
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public String getClearanceLevel() { return clearanceLevel; }
+    public void setClearanceLevel(String clearanceLevel) { this.clearanceLevel = clearanceLevel; }
 
     // Getters and Setters
     public Long getId() { return id; }

@@ -5,6 +5,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.telephony.SmsMessage;
@@ -49,12 +50,8 @@ public class SmsReceiver extends BroadcastReceiver {
     }
 
     private void checkSMSAndReport(Context context, String sender, String message) {
-        // ================= FIX IS HERE =================
-        // আগে ছিল: SpamDetector detector = new SpamDetector(context);
-        // এখন হবে: getInstance() ব্যবহার করতে হবে
+        // AI Model Load
         SpamDetector detector = SpamDetector.getInstance(context);
-        // ===============================================
-
         String result = detector.classify(message);
 
         // যদি লোকাল AI বলে এটা স্ক্যাম
@@ -65,11 +62,12 @@ public class SmsReceiver extends BroadcastReceiver {
             showScamNotification(context, sender, message);
 
             // B. সার্ভারে অটোমেটিক রিপোর্ট পাঠান (Background)
-            sendReportToServer(sender, message);
+            // 🔥 এখানে Context পাস করতে হবে যাতে SharedPreferences এক্সেস করা যায়
+            sendReportToServer(context, sender, message);
         }
     }
 
-    private void sendReportToServer(String sender, String message) {
+    private void sendReportToServer(Context context, String sender, String message) {
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(Constants.BASE_URL)
                 .addConverterFactory(ScalarsConverterFactory.create())
@@ -77,7 +75,13 @@ public class SmsReceiver extends BroadcastReceiver {
                 .build();
 
         ApiService apiService = retrofit.create(ApiService.class);
-        ReportRequest request = new ReportRequest(sender, message);
+
+        // 🔥 FIX: SharedPreferences থেকে ইউজারনেম বের করা হচ্ছে
+        SharedPreferences prefs = context.getSharedPreferences("CyberPrefs", Context.MODE_PRIVATE);
+        String reporter = prefs.getString("username", "Auto-Detector"); // লগইন না থাকলে "Auto-Detector" যাবে
+
+        // 🔥 FIX: এখন ৩টি প্যারামিটার পাঠানো হচ্ছে
+        ReportRequest request = new ReportRequest(sender, message, reporter);
 
         apiService.sendReport(request).enqueue(new Callback<String>() {
             @Override

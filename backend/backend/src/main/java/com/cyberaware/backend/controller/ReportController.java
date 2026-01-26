@@ -4,6 +4,7 @@ import com.cyberaware.backend.model.Report;
 import com.cyberaware.backend.model.ReportRequest;
 import com.cyberaware.backend.repository.ReportRepository;
 import com.cyberaware.backend.service.EmailService;
+import com.cyberaware.backend.service.SpamDetector; // 🔥 Import SpamDetector
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -25,43 +26,62 @@ public class ReportController {
     @Autowired
     private EmailService emailService;
 
-    // ✅ 1. CREATE: ইউজার রিপোর্ট পাঠাচ্ছে (আগের কোড)
+    // 🔥 SpamDetector সার্ভিস ইনজেক্ট করা হলো
+    @Autowired
+    private SpamDetector spamDetector;
+
+    // ✅ 1. CREATE: রিপোর্ট রিসিভ ও এনালাইসিস
     @PostMapping("/report")
     public String receiveReport(@RequestBody ReportRequest request) {
-        Report newReport = new Report(request.getSender(), request.getMessage(), "Pending Analysis");
+
+        // ১. SpamDetector ক্লাস কল করে রেজাল্ট নেওয়া
+        String aiResult = spamDetector.checkForScam(request.getMessage());
+
+        // ২. ডাটাবেসে সেভ করা (Reporter সহ)
+        Report newReport = new Report(
+                request.getSender(),
+                request.getMessage(),
+                aiResult,
+                request.getReporter()
+        );
         reportRepository.save(newReport);
 
-        messagingTemplate.convertAndSend("/topic/alerts", "🚨 New Scam Alert: " + request.getMessage());
-        emailService.sendAlertEmail(request.getMessage());
+        // ৩. অ্যালার্ট পাঠানো (যদি স্ক্যাম হয়)
+        if ("SCAM".equals(aiResult) || "SUSPICIOUS".equals(aiResult)) {
+            messagingTemplate.convertAndSend("/topic/alerts", "🚨 New Scam Alert: " + request.getMessage());
+            // emailService.sendAlertEmail(request.getMessage());
+        }
 
-        return "Report Received Successfully!";
+        return aiResult; // অ্যাপকে রেজাল্ট ফেরত
     }
 
     // ==========================================
-    // 🔥 NEW: RUD OPERATIONS (Admin Features)
+    // 🔥 READ OPERATIONS
     // ==========================================
 
-    // ✅ 2. READ: সব রিপোর্ট দেখা (Admin দেখবে)
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
     }
 
-    // ✅ 3. UPDATE: রিপোর্টের স্ট্যাটাস পাল্টানো (যেমন: "Pending" -> "Verified")
+    @GetMapping("/reports/user")
+    public List<Report> getUserReports(@RequestParam String username) {
+        return reportRepository.findByReporter(username);
+    }
+
+    // ==========================================
+    // 🔥 ADMIN OPERATIONS
+    // ==========================================
+
     @PutMapping("/report/{id}")
     public ResponseEntity<String> updateReportStatus(@PathVariable Long id, @RequestParam String status) {
         return reportRepository.findById(id).map(report -> {
-            // সেটার (Setter) মেথড ব্যবহার করে স্ট্যাটাস আপডেট (আপনার মডেলে setAiResult বা setStatus থাকতে হবে)
-            // আমি ধরে নিচ্ছি আপনার 'aiResult' ফিল্ডটাই স্ট্যাটাস হিসেবে কাজ করছে
-            // যদি মডেলে setAiResult না থাকে, তবে Report.java তে গিয়ে অ্যাড করে নেবেন
             report.setAiResult(status);
-
             reportRepository.save(report);
             return ResponseEntity.ok("Status Updated to: " + status);
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // ✅ 4. DELETE: কোনো রিপোর্ট ডিলিট করা
     @DeleteMapping("/report/{id}")
     public ResponseEntity<String> deleteReport(@PathVariable Long id) {
         if (reportRepository.existsById(id)) {

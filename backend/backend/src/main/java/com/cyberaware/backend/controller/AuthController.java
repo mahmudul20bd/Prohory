@@ -16,37 +16,31 @@ public class AuthController {
     @Autowired
     private UserRepository userRepository;
 
-    // ✅ 1. রেজিস্ট্রেশন API
+
+    // ✅ REGISTER
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> registerUser(@RequestBody AuthRequest request) {
-        // ১. চেক করি ইউজার আগে থেকেই আছে কিনা
         if (userRepository.existsByUsername(request.getUsername())) {
-            return ResponseEntity.badRequest().body(new AuthResponse(false, "Username is already taken!", null));
+            return ResponseEntity.badRequest().body(new AuthResponse(false, "Username taken!", null, null, null));
         }
 
-        // ২. নতুন ইউজার সেভ করি
-        User newUser = new User(request.getUsername(), request.getPassword());
+        // 🔥 ডিফল্ট রোল "Agent" এবং লেভেল "Level 1" দিয়ে ইউজার তৈরি
+        User newUser = new User(request.getUsername(), request.getPassword(), "Agent", "Level 1");
         userRepository.save(newUser);
 
-        return ResponseEntity.ok(new AuthResponse(true, "User registered successfully!", request.getUsername()));
+        return ResponseEntity.ok(new AuthResponse(true, "Registered!", request.getUsername(), "Agent", "Level 1"));
     }
 
-    // ✅ 2. লগইন API
+    // ✅ LOGIN
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> loginUser(@RequestBody AuthRequest request) {
-        // ১. ইউজার ডাটাবেসে আছে কিনা চেক করি
         User user = userRepository.findByUsername(request.getUsername()).orElse(null);
 
-        if (user == null) {
-            return ResponseEntity.status(404).body(new AuthResponse(false, "User not found!", null));
+        if (user == null || !user.getPassword().equals(request.getPassword())) {
+            return ResponseEntity.status(401).body(new AuthResponse(false, "Invalid Credentials", null, null, null));
         }
 
-        // ২. পাসওয়ার্ড মিলছে কিনা দেখি (সিম্পল চেকিং)
-        if (!user.getPassword().equals(request.getPassword())) {
-            return ResponseEntity.status(401).body(new AuthResponse(false, "Invalid Credentials!", null));
-        }
-
-        // ৩. সব ঠিক থাকলে সাকসেস মেসেজ
-        return ResponseEntity.ok(new AuthResponse(true, "Login Successful!", user.getUsername()));
+        // 🔥 লগইন সফল হলে ডাটাবেস থেকে রোল আর লেভেল পাঠানো হচ্ছে
+        return ResponseEntity.ok(new AuthResponse(true, "Login Success", user.getUsername(), user.getRole(), user.getClearanceLevel()));
     }
 }

@@ -57,6 +57,22 @@
             android:name=".HistoryActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity
+            android:name=".DashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity
+            android:name=".ProfileActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity
+            android:name=".ScanDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
 
         <receiver android:name=".SmsReceiver"
             android:exported="true"

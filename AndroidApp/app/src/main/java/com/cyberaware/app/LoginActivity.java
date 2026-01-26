@@ -3,13 +3,14 @@ package com.cyberaware.app;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.appcompat.app.AppCompatActivity;
+
 import com.google.android.material.button.MaterialButton;
 
 import retrofit2.Call;
@@ -49,17 +50,15 @@ public class LoginActivity extends AppCompatActivity {
                 .setInterpolator(new OvershootInterpolator())
                 .start();
 
-        // --- RETROFIT SETUP ---
+        // Retrofit Setup
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(Constants.BASE_URL)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
         apiService = retrofit.create(ApiService.class);
 
-        // Register Link
+        // Actions
         tvRegister.setOnClickListener(v -> startActivity(new Intent(LoginActivity.this, RegisterActivity.class)));
-
-        // Login Button
         btnLogin.setOnClickListener(v -> performServerLogin());
     }
 
@@ -72,7 +71,6 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        // --- SERVER CALL ---
         AuthRequest request = new AuthRequest(username, password);
 
         apiService.login(request).enqueue(new Callback<AuthResponse>() {
@@ -82,21 +80,28 @@ public class LoginActivity extends AppCompatActivity {
                     AuthResponse auth = response.body();
 
                     if (auth.isSuccess()) {
-                        // ১. সার্ভার কনফার্ম করলে সেশন সেভ করা
+                        // 1. Save Session & Dynamic Profile Data
                         SharedPreferences.Editor editor = getSharedPreferences("CyberPrefs", MODE_PRIVATE).edit();
-                        editor.putString("username", username);
+                        editor.putString("username", auth.getUsername());
                         editor.putBoolean("isLoggedIn", true);
+
+                        // 🔥 নতুন ডাটা সেভ করা হচ্ছে
+                        editor.putString("role", auth.getRole() != null ? auth.getRole() : "Agent");
+                        editor.putString("level", auth.getClearanceLevel() != null ? auth.getClearanceLevel() : "Level 1");
+
                         editor.apply();
 
-                        // ২. ড্যাশবোর্ডে যাওয়া
-                        Toast.makeText(LoginActivity.this, "Access Granted", Toast.LENGTH_SHORT).show();
-                        startActivity(new Intent(LoginActivity.this, MainActivity.class));
+                        // 2. Navigate to Dashboard
+                        Toast.makeText(LoginActivity.this, "Identity Verified: " + auth.getRole(), Toast.LENGTH_SHORT).show();
+                        Intent intent = new Intent(LoginActivity.this, DashboardActivity.class);
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                        startActivity(intent);
                         finish();
                     } else {
                         Toast.makeText(LoginActivity.this, "Access Denied: " + auth.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 } else {
-                    Toast.makeText(LoginActivity.this, "Server Error", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(LoginActivity.this, "Server Error: " + response.code(), Toast.LENGTH_SHORT).show();
                 }
             }
 
