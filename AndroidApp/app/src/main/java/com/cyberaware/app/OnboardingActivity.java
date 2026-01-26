@@ -84,8 +84,8 @@ public class OnboardingActivity extends AppCompatActivity {
     }
 
     private void finishOnboarding() {
-        // অনবোর্ডিং শেষ হলে মেইন অ্যাপে যাবে
-        startActivity(new Intent(OnboardingActivity.this, MainActivity.class));
+        // মেইন অ্যাপে না পাঠিয়ে লগইন পেজে পাঠানো হচ্ছে
+        startActivity(new Intent(OnboardingActivity.this, LoginActivity.class));
         finish();
     }
 }

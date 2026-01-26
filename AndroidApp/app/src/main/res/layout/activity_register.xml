@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/deep_space">
+
+    <com.airbnb.lottie.LottieAnimationView
+        android:id="@+id/bgAnimationReg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:lottie_rawRes="@raw/cyber_bg_anim"
+        app:lottie_autoPlay="true"
+        app:lottie_loop="true"
+        android:scaleType="centerCrop"
+        android:alpha="0.3"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="24dp">
+
+            <ImageView
+                android:id="@+id/btnBack"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="?attr/actionModeCloseDrawable"
+                app:tint="@color/text_secondary"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                android:layout_marginTop="10dp"/>
+
+            <TextView
+                android:id="@+id/tvHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CREATE ACCOUNT"
+                android:fontFamily="@font/orbitron_bold"
+                android:textColor="@color/white"
+                android:textSize="24sp"
+                app:layout_constraintTop_toBottomOf="@id/btnBack"
+                app:layout_constraintStart_toStartOf="parent"
+                android:layout_marginTop="20dp"/>
+
+            <TextView
+                android:id="@+id/tvSub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sign up to start protecting your digital life."
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                app:layout_constraintTop_toBottomOf="@id/tvHeader"
+                app:layout_constraintStart_toStartOf="parent"
+                android:layout_marginTop="8dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_glass_card"
+                android:padding="24dp"
+                android:layout_marginTop="30dp"
+                app:layout_constraintTop_toBottomOf="@id/tvSub">
+
+                <com.airbnb.lottie.LottieAnimationView
+                    android:layout_width="120dp"
+                    android:layout_height="120dp"
+                    app:lottie_rawRes="@raw/user"
+                    app:lottie_autoPlay="true"
+                    app:lottie_loop="true"
+                    android:layout_gravity="center"
+                    android:layout_marginBottom="20dp"/>
+
+                <EditText
+                    android:id="@+id/etNewCodename"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_modern_input"
+                    android:hint="Choose a Username"
+                    android:textColorHint="#50F0F4F8"
+                    android:textColor="@color/white"
+                    android:textSize="14sp"
+                    android:paddingHorizontal="16dp"
+                    android:inputType="textNoSuggestions"/>
+
+                <EditText
+                    android:id="@+id/etNewPass"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_modern_input"
+                    android:hint="Password"
+                    android:textColorHint="#50F0F4F8"
+                    android:textColor="@color/white"
+                    android:textSize="14sp"
+                    android:paddingHorizontal="16dp"
+                    android:layout_marginTop="16dp"
+                    android:inputType="textPassword"/>
+
+                <EditText
+                    android:id="@+id/etConfirmPass"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_modern_input"
+                    android:hint="Confirm Password"
+                    android:textColorHint="#50F0F4F8"
+                    android:textColor="@color/white"
+                    android:textSize="14sp"
+                    android:paddingHorizontal="16dp"
+                    android:layout_marginTop="16dp"
+                    android:inputType="textPassword"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRegister"
+                    android:layout_width="match_parent"
+                    android:layout_height="55dp"
+                    android:text="SIGN UP"
+                    android:fontFamily="@font/orbitron_bold"
+                    android:textSize="16sp"
+                    android:layout_marginTop="30dp"
+                    android:textColor="@color/deep_space"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@null"
+                    android:background="@drawable/btn_neon_gradient"/>
+
+            </LinearLayout>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </ScrollView>
+</androidx.constraintlayout.widget.ConstraintLayout>

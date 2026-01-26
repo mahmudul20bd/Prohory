@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_profile"
+            android:icon="@drawable/ic_neon_profile"
+            android:title="AGENT PROFILE" />
+        <item
+            android:id="@+id/nav_history"
+            android:icon="@drawable/ic_neon_history"
+            android:title="SCAN LOGS" />
+    </group>
+
+    <item android:title="SYSTEM">
+        <menu>
+            <item
+                android:id="@+id/nav_logout"
+                android:icon="@drawable/ic_neon_logout"
+                android:title="TERMINATE SESSION" />
+        </menu>
+    </item>
+</menu>

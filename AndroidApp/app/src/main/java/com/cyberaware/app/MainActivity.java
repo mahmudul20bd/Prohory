@@ -5,6 +5,8 @@ import android.animation.ObjectAnimator;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,9 +25,12 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.airbnb.lottie.LottieAnimationView;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.navigation.NavigationView;
 
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.schedulers.Schedulers;
@@ -40,7 +45,11 @@ import ua.naiksoftware.stomp.StompClient;
 
 public class MainActivity extends AppCompatActivity {
 
-    // UI Components
+    // --- UI Components ---
+    private DrawerLayout drawerLayout;
+    private NavigationView navView;
+    private ImageView ivSettings; // Menu Trigger
+
     private EditText etSender, etMessage;
     private MaterialButton btnScan, btnCloseResult;
     private LottieAnimationView lottieScanner;
@@ -49,7 +58,6 @@ public class MainActivity extends AppCompatActivity {
 
     // Result UI
     private CardView cardResult;
-    private LinearLayout layoutResultBg;
     private TextView tvResultTitle, tvResultBody;
     private ImageView ivResultIcon;
 
@@ -61,30 +69,67 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // --- UI Initialization ---
+        // --- 1. Init Views ---
+        drawerLayout = findViewById(R.id.drawerLayout);
+        navView = findViewById(R.id.navView);
+        ivSettings = findViewById(R.id.ivSettings); // Settings icon acts as Menu button
+
         etSender = findViewById(R.id.etSender);
         etMessage = findViewById(R.id.etMessage);
         btnScan = findViewById(R.id.btnScan);
         btnCloseResult = findViewById(R.id.btnCloseResult);
         lottieScanner = findViewById(R.id.lottieScanner);
         inputContainer = findViewById(R.id.inputContainer);
-        statusDot = findViewById(R.id.statusDot); // Status Dot খুঁজে নেওয়া
+        statusDot = findViewById(R.id.statusDot);
 
-        // Result Views
         cardResult = findViewById(R.id.cardResult);
-        layoutResultBg = findViewById(R.id.layoutResultBg);
         tvResultTitle = findViewById(R.id.tvResultTitle);
         tvResultBody = findViewById(R.id.tvResultBody);
         ivResultIcon = findViewById(R.id.ivResultIcon);
 
-        // --- 1. Status Dot Blinking Animation (Added Here) ---
+        // --- 2. Dynamic Header Setup (Fixing Agent 007) ---
+        // নেভিগেশন হেডারে ইউজারের আসল নাম লোড করা হচ্ছে
+        View headerView = navView.getHeaderView(0);
+        TextView tvNavUsername = headerView.findViewById(R.id.tvNavUsername);
+        TextView tvNavLevel = headerView.findViewById(R.id.tvNavLevel);
+
+        SharedPreferences prefs = getSharedPreferences("CyberPrefs", MODE_PRIVATE);
+        String savedUsername = prefs.getString("username", "Unknown Agent");
+
+        tvNavUsername.setText(savedUsername); // ডায়নামিক নাম সেট
+        tvNavLevel.setText("Level 5 Clearance"); // এটা আপাতত স্ট্যাটিক
+
+        // --- 3. Navigation Drawer Logic ---
+        ivSettings.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+
+        navView.setNavigationItemSelectedListener(item -> {
+            int id = item.getItemId();
+
+            if (id == R.id.nav_logout) {
+                // Logout: সেশন ক্লিয়ার করে লগইন পেজে পাঠানো
+                prefs.edit().clear().apply();
+                Intent intent = new Intent(MainActivity.this, LoginActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+            } else if (id == R.id.nav_history) {
+                // Open History Page
+                startActivity(new Intent(MainActivity.this, HistoryActivity.class));
+            } else if (id == R.id.nav_profile) {
+                toast("Access Denied: Restricted Area");
+            }
+
+            drawerLayout.closeDrawer(GravityCompat.START);
+            return true;
+        });
+
+        // --- 4. Status Dot Blinking Animation ---
         ObjectAnimator animator = ObjectAnimator.ofFloat(statusDot, "alpha", 1f, 0.3f, 1f);
         animator.setDuration(2000); // 2 seconds pulse
         animator.setRepeatCount(ObjectAnimator.INFINITE);
         animator.start();
 
-        // --- Background Setup ---
-        // Load AI Model in background thread to prevent ANR
+        // --- 5. Background Setup ---
         new Thread(() -> {
             SpamDetector.getInstance(MainActivity.this);
             Log.d("MainActivity", "SpamDetector Pre-loaded in background");
@@ -103,69 +148,69 @@ public class MainActivity extends AppCompatActivity {
 
         ApiService api = retrofit.create(ApiService.class);
 
-        // --- Button Logic ---
+        // --- 6. Scan Button Logic ---
         btnScan.setOnClickListener(v -> {
             String sender = etSender.getText().toString().trim();
             String msg = etMessage.getText().toString().trim();
 
             if (msg.isEmpty()) {
-                toast("Please enter a message to scan");
+                toast("Input Error: No data to analyze");
                 return;
             }
 
-            // 1. Hide Input & Keyboard, Start Animation
+            // Hide Input & Keyboard, Start Animation
             hideKeyboard();
             inputContainer.animate().alpha(0f).translationY(50f).setDuration(400).withEndAction(() -> inputContainer.setVisibility(View.INVISIBLE));
             lottieScanner.playAnimation();
             cardResult.setVisibility(View.GONE);
 
-            // 2. Run AI Analysis (Simulated delay for "Scanning" effect)
+            // Run AI Analysis (Simulated "Scanning" delay)
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
 
                 // AI Check
                 String aiResult = SpamDetector.getInstance(this).classify(msg);
 
-                // Show Result with Animation
-                showDetailedResult(aiResult, "Analysis Complete.");
+                // Show Result
+                showDetailedResult(aiResult);
 
-                // Send to Server (Backend Reporting)
+                // Backend Reporting
                 api.sendReport(new ReportRequest(sender.isEmpty() ? "Unknown" : sender, msg))
                         .enqueue(new Callback<String>() {
                             @Override
                             public void onResponse(Call<String> call, Response<String> response) {
-                                Log.d("API", "Server Response: " + response.body());
+                                Log.d("API", "Report Logged: " + response.body());
                             }
                             @Override
                             public void onFailure(Call<String> call, Throwable t) {
-                                Log.e("API", "Failed: " + t.getMessage());
+                                Log.e("API", "Upload Failed: " + t.getMessage());
                             }
                         });
 
             }, 2000); // 2 second delay for cool effect
         });
 
-        // Close/Dismiss Button
+        // Close Result Logic
         btnCloseResult.setOnClickListener(v -> resetUI());
     }
 
-    // --- High-End Result Animation & Logic ---
-    private void showDetailedResult(String status, String subText) {
+    // --- Result Animation & Logic ---
+    private void showDetailedResult(String status) {
         cardResult.setVisibility(View.VISIBLE);
         cardResult.setAlpha(0f);
         cardResult.setScaleX(0.8f);
         cardResult.setScaleY(0.8f);
 
-        // Physics-based Bouncy Animation (OvershootInterpolator)
+        // Bouncy Animation
         cardResult.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
                 .setDuration(500)
-                .setInterpolator(new OvershootInterpolator(1.2f)) // Bounce effect
+                .setInterpolator(new OvershootInterpolator(1.2f))
                 .start();
 
         if ("SCAM".equals(status) || "SUSPICIOUS".equals(status)) {
-            // DANGER UI (Cyberpunk Red)
+            // DANGER UI
             tvResultTitle.setText("THREAT DETECTED");
             tvResultTitle.setTextColor(ContextCompat.getColor(this, R.color.alert_crimson));
 
@@ -175,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
             ivResultIcon.setColorFilter(ContextCompat.getColor(this, R.color.alert_crimson));
 
         } else {
-            // SAFE UI (Hacker Green)
+            // SAFE UI
             tvResultTitle.setText("SYSTEM SECURE");
             tvResultTitle.setTextColor(ContextCompat.getColor(this, R.color.hacker_green));
 
@@ -187,7 +232,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetUI() {
-        // Hide Result Card with Fade Out
         cardResult.animate()
                 .alpha(0f)
                 .scaleX(0.8f)
@@ -195,7 +239,6 @@ public class MainActivity extends AppCompatActivity {
                 .setDuration(300)
                 .withEndAction(() -> cardResult.setVisibility(View.GONE));
 
-        // Show Input Fields with Fade In & Slide Up
         inputContainer.setVisibility(View.VISIBLE);
         inputContainer.setTranslationY(50f);
         inputContainer.animate()
@@ -206,7 +249,6 @@ public class MainActivity extends AppCompatActivity {
 
         etMessage.setText("");
         etSender.setText("");
-        // lottieScanner.pauseAnimation(); // Optional: Keep it running for active feel
     }
 
     private void hideKeyboard() {
@@ -217,7 +259,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ================= HELPERS & SETUP =================
+    // ================= HELPERS =================
     private void toast(String m) {
         Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
     }
