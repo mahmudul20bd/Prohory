@@ -1,0 +1,20 @@
+{
+  "version": "v26_4class",
+  "model_name": "distilbert-base-multilingual-cased",
+  "max_length": 128,
+  "num_classes": 4,
+  "labels": [
+    "SAFE",
+    "PROMO",
+    "SPAM",
+    "DANGER"
+  ],
+  "label_descriptions": {
+    "SAFE": "Normal messages, real bank SMS, casual chat",
+    "PROMO": "Legitimate offers from known brands (GP, Daraz, etc.)",
+    "SPAM": "Unwanted promotional, subscription traps, unknown source",
+    "DANGER": "Scams, phishing, fraud attempts"
+  },
+  "training_samples": 123615,
+  "final_accuracy": 0.9984710812568665
+}
