@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin("*") // অ্যান্ড্রয়েড অ্যাপ থেকে এক্সেস করার জন্য জরুরি
+@CrossOrigin("*") 
 public class AuthController {
 
     @Autowired
@@ -26,7 +26,7 @@ public class AuthController {
 
         // 🔥 ডিফল্ট রোল "Agent" এবং লেভেল "Level 1" দিয়ে ইউজার তৈরি
         User newUser = new User(request.getUsername(), request.getPassword(), "Agent", "Level 1");
-        userRepository.save(newUser);
+        
 
         return ResponseEntity.ok(new AuthResponse(true, "Registered!", request.getUsername(), "Agent", "Level 1"));
     }
