@@ -27,6 +27,5 @@ backend/backend/ai-engine/__pycache__/
 # AI Model Files
 *.h5
 *.keras
-*.tflite
 *.pt
 *.ckpt
