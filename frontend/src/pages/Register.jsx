@@ -38,7 +38,7 @@ function Register() {
     try {
       // ✅ FIXED: Path changed from '/api/users' to '/api/auth'
       // পোর্ট 9090 রেখেছেন তাই 9090 ই থাকবে
-      await axios.post('http://localhost:9090/api/auth/register', formData);
+      await axios.post('https://cyber-aware.onrender.com/api/auth/register', formData);
       
       alert("✅ Registration Successful! Please Login.");
       navigate('/login');

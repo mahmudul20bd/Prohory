@@ -27,7 +27,7 @@ function Settings() {
     setLoading(true);
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      await axios.put(`http://localhost:9090/api/users/profile?username=${username}`, { email }, config);
+      await axios.put(`https://cyber-aware.onrender.com/api/users/profile?username=${username}`, { email }, config);
       alert("✅ Profile Updated!");
     } catch (error) { alert("❌ Failed to update."); } 
     finally { setLoading(false); }
@@ -39,7 +39,7 @@ function Settings() {
     setLoading(true);
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      await axios.put(`http://localhost:9090/api/users/change-password?username=${username}`, {
+      await axios.put(`https://cyber-aware.onrender.com/api/users/change-password?username=${username}`, {
         oldPassword: passwords.oldPassword, newPassword: passwords.newPassword
       }, config);
       alert("✅ Password Changed! Please login again.");

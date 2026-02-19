@@ -83,7 +83,7 @@ function UserDashboard() {
   const fetchUserData = async () => {
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const res = await axios.get(`http://localhost:9090/api/reports/user?username=${username}`, config);
+      const res = await axios.get(`https://cyber-aware.onrender.com/api/reports/user?username=${username}`, config);
       const data = res.data;
       
       setHistory(data);
@@ -117,7 +117,7 @@ function UserDashboard() {
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
       
-      const res = await axios.post('http://localhost:9090/api/report', {
+      const res = await axios.post('https://cyber-aware.onrender.com/api/report', {
         sender: username,
         message: message,
         reporter: username

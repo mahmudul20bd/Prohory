@@ -17,7 +17,7 @@ function Login() {
     setLoading(true);
     try {
       // API Call to Backend
-      const response = await axios.post('http://localhost:9090/api/auth/login', {
+      const response = await axios.post('https://cyber-aware.onrender.com/api/auth/login', {
         username: username, 
         password: password
       });

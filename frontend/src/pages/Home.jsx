@@ -69,7 +69,7 @@ function Home() {
   useEffect(() => {
     const fetchNews = async () => {
       try {
-        const res = await axios.get('http://localhost:9090/api/news'); 
+        const res = await axios.get('https://cyber-aware.onrender.com/api/news'); 
         setNews(res.data.length > 0 ? res.data.slice(0, 3) : defaultNews);
       } catch (error) { setNews(defaultNews); }
     };

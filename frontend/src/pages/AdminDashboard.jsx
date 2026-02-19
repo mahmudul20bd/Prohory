@@ -31,7 +31,7 @@ function AdminDashboard() {
       const config = { headers: { Authorization: `Bearer ${token}` } };
       
       if (activeTab === 'users') {
-        const userRes = await axios.get('http://localhost:9090/api/users', config);
+        const userRes = await axios.get('https://cyber-aware.onrender.com/api/users', config);
         setUsers(userRes.data);
         setStats({
           totalUsers: userRes.data.length,
@@ -40,10 +40,10 @@ function AdminDashboard() {
         });
         
         // গ্রাফ ডাটা ফেচ
-        const statsRes = await axios.get('http://localhost:9090/api/reports/stats', config);
+        const statsRes = await axios.get('https://cyber-aware.onrender.com/api/reports/stats', config);
         setGraphData(statsRes.data);
       } else {
-        const logRes = await axios.get('http://localhost:9090/api/logs', config);
+        const logRes = await axios.get('https://cyber-aware.onrender.com/api/logs', config);
         setLogs(logRes.data);
       }
       setLoading(false);
@@ -55,7 +55,7 @@ function AdminDashboard() {
   const deleteUser = async (id) => {
     if(!window.confirm("Permanently delete this user?")) return;
     try {
-      await axios.delete(`http://localhost:9090/api/users/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.delete(`https://cyber-aware.onrender.com/api/users/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(users.filter(u => u.id !== id));
     } catch (error) { alert("Delete failed"); }
   };

@@ -42,7 +42,7 @@ function ExpertDashboard() {
 
     if (stompClientRef.current) return; // StrictMode double prevent
 
-    const socket = new SockJS("http://localhost:9090/ws");
+    const socket = new SockJS("https://cyber-aware.onrender.com/ws");
     const client = Stomp.over(socket);
     client.debug = null;
 
@@ -120,7 +120,7 @@ function ExpertDashboard() {
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
 
-      const res = await axios.get("http://localhost:9090/api/reports", config);
+      const res = await axios.get("https://cyber-aware.onrender.com/api/reports", config);
       const data = res.data.reverse();
 
       setReports(data);
@@ -146,7 +146,7 @@ function ExpertDashboard() {
       const config = { headers: { Authorization: `Bearer ${token}` } };
 
       await axios.put(
-        `http://localhost:9090/api/report/${id}?status=${newStatus}`,
+        `https://cyber-aware.onrender.com/api/report/${id}?status=${newStatus}`,
         {},
         config
       );
@@ -189,7 +189,7 @@ function ExpertDashboard() {
       const config = { headers: { Authorization: `Bearer ${token}` } };
 
       const res = await axios.post(
-        "http://localhost:9090/api/malware/scan",
+        "https://cyber-aware.onrender.com/api/malware/scan",
         formData,
         config
       );

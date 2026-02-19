@@ -36,7 +36,7 @@ function Home() {
     // Fetch logic (Optional)
     const fetchNews = async () => {
       try {
-        const res = await axios.get('http://localhost:9090/api/news'); 
+        const res = await axios.get('https://cyber-aware.onrender.com/api/news'); 
         setNews(res.data.slice(0, 3));
       } catch (error) { console.log("Backend offline"); }
     };
