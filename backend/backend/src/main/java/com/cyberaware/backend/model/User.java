@@ -13,7 +13,10 @@ public class User {
     @Column(unique = true, nullable = false)
     private String username;
 
-    private String email; // 🔥 নতুন ফিল্ড যোগ করা হলো
+    private String email;
+
+    @Column(unique = true) // 🔥 NEW: Unique Agent ID
+    private String agentId;
 
     @Column(nullable = false)
     private String password;
@@ -23,10 +26,10 @@ public class User {
 
     public User() {}
 
-    // কনস্ট্রাক্টর আপডেট
-    public User(String username, String email, String password, String role, String clearanceLevel) {
+    public User(String username, String email, String agentId, String password, String role, String clearanceLevel) {
         this.username = username;
         this.email = email;
+        this.agentId = agentId;
         this.password = password;
         this.role = role;
         this.clearanceLevel = clearanceLevel;
@@ -39,8 +42,11 @@ public class User {
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
 
-    public String getEmail() { return email; } // Getter
-    public void setEmail(String email) { this.email = email; } // Setter
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getAgentId() { return agentId; } // 🔥 NEW
+    public void setAgentId(String agentId) { this.agentId = agentId; } // 🔥 NEW
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
