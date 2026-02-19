@@ -14,8 +14,9 @@ Clone করার আগে এই কমান্ড রান করো:
 
 ```bash
 git lfs install
+```
 
-## ১️⃣ প্রজেক্ট নামানো:
+## ১️. প্রজেক্ট নামানো:
 
 Create a project folder →
 Go to project folder →
@@ -25,8 +26,9 @@ Right click → Open with Terminal →
 ```bash
 git clone https://github.com/mahmudul20bd/Cyber-Aware.git
 cd Cyber-Aware
+```
 
-## ২️⃣ নিজের ব্রাঞ্চে যাওয়া:
+## ২️. নিজের ব্রাঞ্চে যাওয়া:
 
 ফোল্ডারে ঢুকে চেক করো তুমি কোন ব্রাঞ্চে আছো:
 
