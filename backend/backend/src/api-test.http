@@ -1,0 +1,7 @@
+POST http://localhost:8080/api/report
+Content-Type: application/json
+
+{
+  "sender": "+8801700000000",
+  "messageBody": "Apnar account bondho hoye jabe. Click here."
+}

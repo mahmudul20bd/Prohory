@@ -1,0 +1,32 @@
+# Android
+.gradle/
+local.properties
+build/
+.idea/
+*.iml
+*.apk
+
+# Backend (Java/Spring)
+target/
+.mvn/
+mvnw
+mvnw.cmd
+*.class
+
+# Frontend (React)
+node_modules/
+dist/
+.env
+.DS_Store
+
+
+# Python AI
+backend/backend/ai-engine/venv/
+backend/backend/ai-engine/__pycache__/
+
+# AI Model Files
+*.h5
+*.keras
+*.tflite
+*.pt
+*.ckpt
