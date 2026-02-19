@@ -1,44 +1,159 @@
-📢 Team Instructions for CyberAware Project:
+---
+
+# 📢 Team Instructions for CyberAware Project
 
 সবাই নিচের ধাপগুলো ফলো করে প্রজেক্ট সেটআপ করো:
 
-১. প্রজেক্ট নামানো: প্রথমে গিটহাব থেকে প্রজেক্ট ক্লোন করো:
+---
 
-create a project folder -> go to project folder -> right click and open with terminal -> copy and paste this line below-
+## ⚠️ গুরুত্বপূর্ণ (Clone করার আগে একবার করতেই হবে)
 
+এই প্রজেক্টে বড় `.tflite` AI model Git LFS দিয়ে রাখা আছে।
+
+Clone করার আগে এই কমান্ড রান করো:
+
+```bash
+git lfs install
+
+## ১️⃣ প্রজেক্ট নামানো:
+
+Create a project folder →
+Go to project folder →
+Right click → Open with Terminal →
+তারপর নিচের লাইনটি paste করো:
+
+```bash
 git clone https://github.com/mahmudul20bd/Cyber-Aware.git
+cd Cyber-Aware
 
-২. নিজের ব্রাঞ্চে যাওয়া: ফোল্ডারে ঢুকে চেক করো তুমি কোন ব্রাঞ্চে আছো। এরপর নিজের ব্রাঞ্চে সুইচ করো: git checkout তোমার_নাম (যেমন: git checkout Sharif)
+## ২️⃣ নিজের ব্রাঞ্চে যাওয়া:
 
-৩. ডাটাবেস সেটআপ: প্রজেক্টের ফোল্ডারে দেখো একটা .sql ফাইল আছে। MySQL-এ cyberaware_db নামে একটা ডাটাবেস বানিয়ে সেখানে ওই ফাইলটা Import করো।
+ফোল্ডারে ঢুকে চেক করো তুমি কোন ব্রাঞ্চে আছো:
 
-৪. সার্ভার কনফিগারেশন ও রান করা (IntelliJ IDEA): ⚠️ গুরুত্বপূর্ণ
+```bash
+git branch
+```
 
-IntelliJ IDEA তে প্রজেক্টের backend ফোল্ডারটি ওপেন করো।
+এরপর নিজের ব্রাঞ্চে সুইচ করো:
 
-backend\backend\src\main\java\com\cyberaware\backend\BackendApplication.java ফাইলে যাও।
+```bash
+git checkout তোমার_নাম
+```
 
-এবার BackendApplication ফাইলটি বের করে Run বাটন চাপো। কনসোলে "Completed initialization in 1 ms" লেখা আসলে বুঝবে সার্ভার চলছে।
+উদাহরণ:
 
-৪. আইপি অ্যাড্রেস সেটআপ: তোমার পিসির আইপি বের করো (cmd -> ipconfig)।
+```bash
+git checkout Sharif
+```
 
-Go to Android Studio -> File -> Open AndroidApp folder -> go
+---
 
-app\src\main\java\com\cyberaware\app
+## ৩️⃣ ডাটাবেস সেটআপ (⚠️ শুধু Local Development এর জন্য)
 
- Constants.java ফাইলে BASE_URL এ তোমার আইপি বসাও। 
+⚠️ Production এ Database Railway-তে hosted আছে।
+Local এ backend run করতে চাইলে এই ধাপ করো।
 
-৫. কাজ শেষে পুশ করা: কাজ শেষ হলে মেইন ব্রাঞ্চে পুশ করবে না! শুধু নিজের ব্রাঞ্চে পুশ করবে:
- 
- go to vs code -> open the Cyber Aware Folder -> open new terminal -> and then write these line
+১. MySQL open করো
+২. `cyberaware_db` নামে একটি database বানাও
+৩. Project folder এ থাকা `.sql` file import করো
 
-//Bash Command
+---
 
+## ৪️⃣ সার্ভার কনফিগারেশন ও রান করা (IntelliJ IDEA) – Optional
 
+⚠️ গুরুত্বপূর্ণ: Backend already Render-এ hosted আছে।
+Local এ run করতে চাইলে নিচের ধাপগুলো ফলো করো।
+
+১. IntelliJ IDEA তে প্রজেক্টের `backend` ফোল্ডারটি ওপেন করো
+২. নিচের ফাইলে যাও:
+
+```
+backend/backend/src/main/java/com/cyberaware/backend/BackendApplication.java
+```
+
+৩. `BackendApplication.java` ফাইলটি Run করো
+
+Console এ যদি দেখো:
+
+```
+Started BackendApplication
+```
+
+তাহলে বুঝবে সার্ভার চলছে।
+
+---
+
+## ৫️⃣ ⚠️ আইপি অ্যাড্রেস সেটআপ (আর প্রয়োজন নেই)
+
+আগের মতো PC IP বসানোর দরকার নেই।
+
+Backend এখন Render-এ hosted।
+Android App already deployed backend URL ব্যবহার করে।
+
+তাই `Constants.java` এ IP পরিবর্তন করার প্রয়োজন নেই।
+
+---
+
+## ৬️⃣ Android App রান করা
+
+১. Android Studio open করো
+২. File → Open → `AndroidApp` folder select করো
+৩. Gradle sync হতে দাও
+৪. Emulator বা Physical device এ Run করো
+
+---
+
+## ৭️⃣ AI Model সংক্রান্ত গুরুত্বপূর্ণ তথ্য
+
+* Android `.tflite` model Git LFS দিয়ে stored
+* Clone করার আগে অবশ্যই `git lfs install` করতে হবে
+* না করলে model 1KB pointer file হিসেবে আসবে
+
+---
+
+## ৮️⃣ কাজ শেষে Push করার নিয়ম
+
+⚠️ কখনোই সরাসরি `main` branch এ push করবে না।
+
+VS Code এ:
+
+Open CyberAware Folder → Open New Terminal → লিখো:
+
+```bash
 git pull
-
 git add .
-
-git commit -m "ki kaj korso tar short description"
-
+git commit -m "কি কাজ করেছো তার সংক্ষিপ্ত বর্ণনা"
 git push origin তোমার_নাম
+```
+
+---
+
+# 🧠 Project Architecture
+
+```
+Android App
+     ↓
+Render Backend (Spring Boot)
+     ↓
+Cloud AI Engine (Flask + TensorFlow)
+     ↓
+Railway MySQL Database
+```
+
+---
+
+# ✅ Summary
+
+* Git LFS ব্যবহার করা হয়েছে
+* Backend cloud-এ hosted
+* Database Railway-তে hosted
+* Local IP সেট করার প্রয়োজন নেই
+* শুধুমাত্র নিজের branch এ কাজ করতে হবে
+
+---
+
+এখন README clean, accurate এবং updated।
+
+---
+
+চাও কি আমি এখন তোমার জন্য একটা ছোট “For Reviewers / Judges” section যোগ করে দিই যেটা project presentation-এ impress করবে? 😎
