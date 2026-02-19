@@ -21,8 +21,11 @@ dist/
 
 
 # Python AI
+backend/backend/ai-engine/model_weights.h5
+backend/backend/ai-engine/model.keras
+backend/backend/ai-engine/vocab.txt
+backend/backend/ai-engine/tokenizer_config.json
 backend/backend/ai-engine/venv/
-backend/backend/ai-engine/__pycache__/
 
 # AI Model Files
 *.h5
