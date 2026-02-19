@@ -48,7 +48,7 @@ git checkout Sharif
 
 ---
 
-## ৩️⃣ ডাটাবেস সেটআপ (⚠️ শুধু Local Development এর জন্য)
+## ৩️. ডাটাবেস সেটআপ (⚠️ শুধু Local Development এর জন্য)
 
 ⚠️ Production এ Database Railway-তে hosted আছে।
 Local এ backend run করতে চাইলে এই ধাপ করো।
@@ -59,7 +59,7 @@ Local এ backend run করতে চাইলে এই ধাপ করো।
 
 ---
 
-## ৪️⃣ সার্ভার কনফিগারেশন ও রান করা (IntelliJ IDEA) – Optional
+## ৪️. সার্ভার কনফিগারেশন ও রান করা (IntelliJ IDEA) – Optional
 
 ⚠️ গুরুত্বপূর্ণ: Backend already Render-এ hosted আছে।
 Local এ run করতে চাইলে নিচের ধাপগুলো ফলো করো।
@@ -83,7 +83,7 @@ Started BackendApplication
 
 ---
 
-## ৫️⃣ ⚠️ আইপি অ্যাড্রেস সেটআপ (আর প্রয়োজন নেই)
+## ৫️. ⚠️ আইপি অ্যাড্রেস সেটআপ (আর প্রয়োজন নেই)
 
 আগের মতো PC IP বসানোর দরকার নেই।
 
@@ -94,7 +94,7 @@ Android App already deployed backend URL ব্যবহার করে।
 
 ---
 
-## ৬️⃣ Android App রান করা
+## ৬️. Android App রান করা
 
 ১. Android Studio open করো
 ২. File → Open → `AndroidApp` folder select করো
@@ -103,7 +103,7 @@ Android App already deployed backend URL ব্যবহার করে।
 
 ---
 
-## ৭️⃣ AI Model সংক্রান্ত গুরুত্বপূর্ণ তথ্য
+## ৭️. AI Model সংক্রান্ত গুরুত্বপূর্ণ তথ্য
 
 * Android `.tflite` model Git LFS দিয়ে stored
 * Clone করার আগে অবশ্যই `git lfs install` করতে হবে
@@ -111,7 +111,7 @@ Android App already deployed backend URL ব্যবহার করে।
 
 ---
 
-## ৮️⃣ কাজ শেষে Push করার নিয়ম
+## ৮️. কাজ শেষে Push করার নিয়ম
 
 ⚠️ কখনোই সরাসরি `main` branch এ push করবে না।
 
@@ -139,21 +139,3 @@ Cloud AI Engine (Flask + TensorFlow)
      ↓
 Railway MySQL Database
 ```
-
----
-
-# ✅ Summary
-
-* Git LFS ব্যবহার করা হয়েছে
-* Backend cloud-এ hosted
-* Database Railway-তে hosted
-* Local IP সেট করার প্রয়োজন নেই
-* শুধুমাত্র নিজের branch এ কাজ করতে হবে
-
----
-
-এখন README clean, accurate এবং updated।
-
----
-
-চাও কি আমি এখন তোমার জন্য একটা ছোট “For Reviewers / Judges” section যোগ করে দিই যেটা project presentation-এ impress করবে? 😎
