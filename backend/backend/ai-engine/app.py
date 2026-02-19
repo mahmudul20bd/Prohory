@@ -61,7 +61,11 @@ def build_model():
     input_ids = tf.keras.Input(shape=(MAX_LEN,), dtype=tf.int32, name="input_ids")
     attention_mask = tf.keras.Input(shape=(MAX_LEN,), dtype=tf.int32, name="attention_mask")
 
-    bert = TFDistilBertModel.from_pretrained("distilbert-base-multilingual-cased")
+    bert = TFDistilBertModel.from_pretrained(
+    "distilbert-base-multilingual-cased",
+    cache_dir="./hf_cache"
+)
+
 
     outputs = bert(input_ids=input_ids, attention_mask=attention_mask)
 
@@ -136,5 +140,6 @@ def health():
     return {"status": "ok"}
 
 if __name__ == "__main__":
-    print("🚀 AI Engine running on port 5000")
-    app.run(port=5000)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 AI Engine running on port {port}")
+    app.run(host="0.0.0.0", port=port)
