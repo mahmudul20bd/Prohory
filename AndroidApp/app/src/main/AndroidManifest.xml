@@ -13,7 +13,9 @@
 
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
 
+
     <application
+
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -65,7 +67,15 @@
             android:name=".MainActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity
+            android:name=".NetworkScanActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
 
+        <activity
+            android:name=".NeuralLogsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
         <activity
             android:name=".SuccessActivity"
             android:exported="false"
@@ -86,10 +96,11 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-        <receiver android:name=".SmsReceiver"
+        <receiver
+            android:name=".SmsReceiver"
             android:exported="true"
             android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter>
+            <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>

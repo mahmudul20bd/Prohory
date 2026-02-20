@@ -14,16 +14,17 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import com.cyberaware.app.network.RetrofitClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
 
-            // GoAsync ব্যবহার করছি যাতে অ্যাপ ক্র্যাশ না করে এবং ব্যাকগ্রাউন্ডে কাজ হয়
+            // GoAsync ব্যবহার করছি যাতে অ্যাপ ক্র্যাশ না করে এবং ব্যাকগ্রাউন্ডে কাজ হয়
             val pendingResult = goAsync()
 
             Thread {
@@ -34,12 +35,12 @@ class SmsReceiver : BroadcastReceiver() {
                             val sender = sms.originatingAddress ?: "Unknown"
                             val messageBody = sms.messageBody ?: ""
 
-                            // মেসেজ চেক করা
+                            // মেসেজ চেক করা এবং সার্ভারে পাঠানো
                             checkSMSAndReport(context, sender, messageBody)
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("SmsReceiver", "Error receiving SMS", e)
+                    Log.e("Prohory_SmsReceiver", "Error receiving SMS", e)
                 } finally {
                     pendingResult.finish()
                 }
@@ -48,59 +49,78 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun checkSMSAndReport(context: Context, sender: String, message: String) {
-        // Simple Spam Detection Logic (SpamDetector ক্লাস না থাকলেও কাজ করবে)
+        // Simple Spam Detection Logic (লোকাল ডিটেকশন)
         val lowerMsg = message.lowercase()
         val isSuspicious = lowerMsg.contains("win") ||
                 lowerMsg.contains("lottery") ||
                 lowerMsg.contains("bank") ||
                 lowerMsg.contains("verify") ||
-                lowerMsg.contains("click here")
+                lowerMsg.contains("click here") ||
+                lowerMsg.contains("urgent")
 
         if (isSuspicious) {
-            Log.d("CyberAware", "⚠️ THREAT DETECTED from $sender")
+            Log.d("Prohory_SmsReceiver", "⚠️ LOCAL THREAT DETECTED from $sender")
 
-            // ১. নোটিফিকেশন দেখান
+            // ১. লোকাল নোটিফিকেশন দেখান
             showScamNotification(context, sender, message)
-
-            // ২. সার্ভারে রিপোর্ট পাঠান
-            sendReportToServer(context, sender, message)
         } else {
-            Log.d("CyberAware", "Message is Safe.")
+            Log.d("Prohory_SmsReceiver", "Message locally safe. Forwarding to AI Core...")
         }
+
+        // ২. সব মেসেজ ব্যাকএন্ডে (AI Core) পাঠানো হবে যাতে গ্রাফ রিয়েল-টাইমে আপডেট হয়
+        sendReportToServer(context, sender, message)
     }
 
     private fun sendReportToServer(context: Context, sender: String, message: String) {
-        // আমরা সরাসরি RetrofitClient ব্যবহার করছি
-        val request = ReportRequest(
-            type = "Auto-SMS-Scan",
-            description = "Suspicious SMS from $sender: $message",
-            userId = "System-Detector"
-        )
+        // SharedPreferences থেকে লগইন করা এজেন্টের টোকেন এবং আইডি নেওয়া
+        val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val token = sharedPref.getString("auth_token", "") ?: ""
 
-        RetrofitClient.instance.sendReport(request).enqueue(object : Callback<String> {
-            override fun onResponse(call: Call<String>, response: Response<String>) {
-                Log.d("CyberAware", "✅ Auto-Reported to Server")
-            }
+        // 🔥 Null Safety ফিক্স করা হলো (?: ব্যবহার করে)
+        val reporterId = sharedPref.getString("agentId", "System-Detector") ?: "System-Detector"
+        // ইউজার লগইন না থাকলে ডেটা পাঠানো হবে না
+        if (token.isEmpty()) {
+            Log.e("Prohory_SmsReceiver", "❌ No Auth Token. Cannot send report.")
+            return
+        }
 
-            override fun onFailure(call: Call<String>, t: Throwable) {
-                Log.e("CyberAware", "❌ Report Failed: ${t.message}")
+        // Retrofit এর Coroutine বেইজড API কল
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Spring Boot এর ReportRequest / Report Entity এর সাথে ম্যাচ করে ডাটা ম্যাপ করা
+                val payload = mapOf(
+                    "sender" to sender,
+                    "message" to message,
+                    "reporter" to reporterId
+                )
+
+                val response = RetrofitClient.apiService.submitSmsReport("Bearer $token", payload)
+
+                if (response.isSuccessful) {
+                    Log.d("Prohory_SmsReceiver", "✅ Auto-Reported to Server! Graph will spike if threat found.")
+                } else {
+                    Log.e("Prohory_SmsReceiver", "❌ Report Failed: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("Prohory_SmsReceiver", "⚠️ Network Error: ${e.message}")
             }
-        })
+        }
     }
 
     private fun showScamNotification(context: Context, sender: String, message: String) {
         createNotificationChannel(context) // চ্যানেল তৈরি নিশ্চিত করা
 
-        val intent = Intent(context, MainActivity::class.java).apply {
+        // 노টিফিকেশনে ক্লিক করলে সরাসরি DashboardActivity তে যাবে
+        val intent = Intent(context, DashboardActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(context, "SCAM_ALERT")
-            .setSmallIcon(android.R.drawable.stat_notify_error) // আইকন চেঞ্জ করতে পারেন
-            .setContentTitle("🚨 Possible Scam Detected!")
-            .setContentText("From: $sender")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("CyberAware detected a threat:\n$message"))
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle("🚨 Prohory: Threat Intercepted!")
+            .setContentText("Sender: $sender")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("CyberAware AI detected a threat:\n$message"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -113,8 +133,8 @@ class SmsReceiver : BroadcastReceiver() {
 
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Scam Alerts"
-            val descriptionText = "Notifications for detected scams"
+            val name = "Prohory Alerts"
+            val descriptionText = "Notifications for detected malicious SMS"
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel("SCAM_ALERT", name, importance).apply {
                 description = descriptionText

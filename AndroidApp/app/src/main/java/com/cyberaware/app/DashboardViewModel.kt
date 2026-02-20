@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cyberaware.app.network.DashboardStats
 import com.cyberaware.app.network.RetrofitClient
+import com.cyberaware.app.network.SystemLog
 import com.cyberaware.app.network.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +23,17 @@ class DashboardViewModel : ViewModel() {
     private val _dashboardStats = MutableStateFlow<DashboardStats?>(null)
     val dashboardStats: StateFlow<DashboardStats?> = _dashboardStats
 
-    // 🔥 লাইভ থ্রেট লেভেল (সকেট থেকে আসবে)
     private val _liveThreatLevel = MutableStateFlow(0.2f)
     val liveThreatLevel: StateFlow<Float> = _liveThreatLevel
 
+    // 🔥 ড্যাশবোর্ডের রিসেন্ট লগের জন্য State
+    private val _recentLogs = MutableStateFlow<List<SystemLog>>(emptyList())
+    val recentLogs: StateFlow<List<SystemLog>> = _recentLogs
+
     private var stompClient: StompClient? = null
 
-    fun loadDashboardData(token: String) {
+    // 🔥 এখন এটি username এবং role ও রিসিভ করবে ফিল্টার করার জন্য
+    fun loadDashboardData(token: String, username: String, role: String) {
         viewModelScope.launch {
             try {
                 val profileResponse = RetrofitClient.apiService.getUserProfile("Bearer $token")
@@ -36,6 +41,18 @@ class DashboardViewModel : ViewModel() {
 
                 val statsResponse = RetrofitClient.apiService.getDashboardStats("Bearer $token")
                 if (statsResponse.isSuccessful) _dashboardStats.value = statsResponse.body()
+
+                // 🔥 Neural Logs থেকে ডাটা নিয়ে ড্যাশবোর্ডে পাঠানো
+                val logsResponse = RetrofitClient.apiService.getNeuralLogs("Bearer $token")
+                if (logsResponse.isSuccessful && logsResponse.body() != null) {
+                    val allLogs = logsResponse.body()!!
+                    val filteredLogs = if (role.uppercase() == "ADMIN") {
+                        allLogs.reversed()
+                    } else {
+                        allLogs.filter { it.username == username }.reversed()
+                    }
+                    _recentLogs.value = filteredLogs.take(3) // শুধুমাত্র টপ ৩টি লগ ড্যাশবোর্ডে দেখাবে
+                }
             } catch (e: Exception) {
                 Log.e("DashboardVM", "API Error: ${e.message}")
             }
@@ -44,26 +61,17 @@ class DashboardViewModel : ViewModel() {
 
     @SuppressLint("CheckResult")
     fun connectWebSocket() {
-        // 🔥 আপনার সার্ভারের IP দিন। Render এ থাকলে: "wss://cyber-aware.onrender.com/ws/websocket"
+        // আপনার লোকাল বা Render এর WebSocket URL
         val wsUrl = "ws://10.0.2.2:9090/ws/websocket"
 
         stompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl)
         stompClient?.connect()
 
-        // ব্যাকএন্ডের /topic/alerts এ লিসেন করা
         stompClient?.topic("/topic/alerts")?.subscribe({ topicMessage ->
-            Log.d("WebSocket", "New Alert Received: ${topicMessage.payload}")
-
             val payload = topicMessage.payload.uppercase()
             val isDanger = payload.contains("DANGER") || payload.contains("SCAM") || payload.contains("CRITICAL")
 
-            // ডেঞ্জার হলে গ্রাফে বড় স্পাইক (0.8 - 1.0), সেফ হলে নরমাল (0.2 - 0.4)
-            val nextThreat = if (isDanger) {
-                0.8f + Random.nextFloat() * (1.0f - 0.8f)
-            } else {
-                0.2f + Random.nextFloat() * (0.4f - 0.2f)
-            }
-
+            val nextThreat = if (isDanger) 0.8f + Random.nextFloat() * 0.2f else 0.2f + Random.nextFloat() * 0.2f
             _liveThreatLevel.value = nextThreat
         }, { error ->
             Log.e("WebSocket", "Connection Error: ", error)
@@ -72,6 +80,6 @@ class DashboardViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
-        stompClient?.disconnect() // অ্যাপ বন্ধ হলে সকেট ডিসকানেক্ট হবে
+        stompClient?.disconnect()
     }
 }
