@@ -1,0 +1,277 @@
+/* Premium WhatsApp-like Modern Chat UI */
+.modern-chat-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 75vh; /* ড্যাশবোর্ডের ভেতরে সুন্দরভাবে ফিট হওয়ার জন্য */
+    background: #0f172a; /* Deep slate dark */
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.modern-chat-header {
+    background: rgba(30, 41, 59, 0.95);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+}
+
+.modern-chat-header .chat-avatar {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 20px;
+    color: white;
+    margin-right: 16px;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+}
+
+.modern-chat-header .chat-info h4 {
+    margin: 0;
+    color: #f8fafc;
+    font-family: 'Poppins', 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 1.1rem;
+    letter-spacing: 0.3px;
+}
+
+.modern-chat-header .chat-info p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-family: 'Poppins', 'Outfit', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.online-indicator {
+    width: 8px;
+    height: 8px;
+    background-color: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #10b981;
+}
+
+.modern-chat-body {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    background: #0b1120;
+    background-image: radial-gradient(#1e293b 1px, transparent 1px);
+    background-size: 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.modern-chat-body::-webkit-scrollbar { width: 6px; }
+.modern-chat-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+
+.chat-message-row {
+    display: flex;
+    width: 100%;
+}
+
+.chat-message-row.me { justify-content: flex-end; }
+.chat-message-row.other { justify-content: flex-start; }
+
+.modern-bubble {
+    max-width: 70%;
+    padding: 12px 18px;
+    font-family: 'Poppins', 'Outfit', sans-serif;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.chat-message-row.me .modern-bubble {
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    color: #ffffff;
+    border-radius: 20px 20px 4px 20px;
+}
+
+.chat-message-row.other .modern-bubble {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 20px 20px 20px 4px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.modern-bubble .msg-sender {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    opacity: 0.85;
+}
+
+.chat-message-row.other .msg-sender { color: #a78bfa; }
+
+.modern-bubble .msg-time {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    float: right;
+    margin-left: 12px;
+    margin-top: 8px;
+}
+
+.modern-chat-footer {
+    background: rgba(30, 41, 59, 0.95);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.modern-input-box {
+    flex: 1;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 30px;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+.modern-input-box:focus-within {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.modern-input-box input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: #f8fafc;
+    font-family: 'Poppins', 'Outfit', sans-serif;
+    font-size: 0.95rem;
+    outline: none;
+}
+
+.modern-input-box input::placeholder { color: #64748b; }
+
+.modern-send-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.modern-send-btn:hover:not(:disabled) {
+    transform: scale(1.08) translateY(-2px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+
+.modern-send-btn:disabled {
+    background: #334155;
+    color: #64748b;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* WhatsApp Web Style Split Layout for Experts */
+.chat-dashboard-container {
+    display: flex;
+    gap: 20px;
+    height: 75vh;
+    width: 100%;
+}
+
+.chat-contacts-sidebar {
+    width: 320px;
+    background: rgba(30, 41, 59, 0.95);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+.contacts-header {
+    padding: 20px;
+    background: #0f172a;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-family: 'Orbitron', sans-serif;
+    color: #00f3ff;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.contacts-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.contact-item {
+    padding: 15px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    transition: all 0.2s;
+}
+
+.contact-item:hover { background: rgba(255,255,255,0.05); }
+.contact-item.active { background: rgba(59, 130, 246, 0.15); border-left: 4px solid #3b82f6; }
+
+.contact-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #10b981, #059669);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.contact-item.active .contact-avatar { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+
+.contact-info { flex: 1; overflow: hidden; }
+.contact-info h6 { margin: 0 0 5px 0; color: #f8fafc; font-size: 0.95rem; font-weight: bold; }
+.contact-info p { margin: 0; color: #64748b; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.empty-chat-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #0f172a;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: #64748b;
+    font-family: 'Orbitron', sans-serif;
+}

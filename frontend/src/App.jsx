@@ -12,36 +12,34 @@ import Register from './pages/Register';
 import UserDashboard from './pages/UserDashboard';
 import ExpertDashboard from './pages/ExpertDashboard';
 import AdminDashboard from './pages/AdminDashboard';
-import Settings from './pages/Settings'; // Settings Import
+import Settings from './pages/Settings'; 
+import ExpertChat from './pages/ExpertChat'; // 🔥 এই লাইনটি মিসিং ছিল!
 
 // Layout Component
 const AppLayout = ({ children }) => {
   const location = useLocation();
   
-  // 🔥 FIX: এখানে '/settings' যুক্ত করা হয়েছে যাতে পাবলিক ফুটার হাইড থাকে
+  // এই পাথগুলোতে নেভিগেশন এবং ফুটার হাইড থাকবে
   const hideNavRoutes = [
     '/login', 
     '/register', 
     '/dashboard', 
     '/expert-dashboard', 
     '/admin-dashboard',
-    '/settings' // 👈 এই লাইনটি মিসিং ছিল
+    '/settings',
+    '/chat'
   ];
 
-  // বর্তমান পাথ যদি উপরের লিস্টের কোনোটির সাথে মিলে যায়, তাহলে showNav = false হবে
   const showNav = !hideNavRoutes.some(route => location.pathname.startsWith(route));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* নেভিগেশন বার (শুধু পাবলিক পেজে) */}
       {showNav && <Navigation />}
       
-      {/* মেইন কন্টেন্ট */}
       <div className={showNav ? "public-layout" : "dashboard-layout-wrapper"} style={{ flex: 1 }}>
         {children}
       </div>
 
-      {/* ফুটার (শুধু পাবলিক পেজে) */}
       {showNav && <Footer />}
     </div>
   );
@@ -61,9 +59,10 @@ function App() {
           <Route path="/dashboard" element={<UserDashboard />} />
           <Route path="/expert-dashboard" element={<ExpertDashboard />} />
           <Route path="/admin-dashboard" element={<AdminDashboard />} /> 
-          
-          {/* Settings Route */}
           <Route path="/settings" element={<Settings />} />
+
+          {/* 🔥 Chat Route */}
+          <Route path="/chat" element={<ExpertChat />} />
         </Routes>
       </AppLayout>
     </Router>

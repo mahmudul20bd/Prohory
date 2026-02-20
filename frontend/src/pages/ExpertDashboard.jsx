@@ -9,10 +9,11 @@ import 'react-toastify/dist/ReactToastify.css';
 
 import {
   FaGlobe, FaBug, FaUserSecret, FaSignOutAlt, FaExclamationTriangle,
-  FaCheckCircle, FaSearch, FaCog, FaFileUpload, FaMicrochip
+  FaCheckCircle, FaSearch, FaCog, FaFileUpload, FaMicrochip, FaComments
 } from 'react-icons/fa';
 
 import '../styles/Dashboard.css';
+import ExpertChat from './ExpertChat'; // 🔥 চ্যাট ইমপোর্ট করা হলো
 
 function ExpertDashboard() {
 
@@ -223,7 +224,7 @@ function ExpertDashboard() {
   };
 
   // =====================================================
-  // ✅ FULL UI (Threat Map + Malware Analysis)
+  // ✅ FULL UI (Threat Map + Malware Analysis + Chat)
   // =====================================================
   return (
     <div className="dashboard-layout" style={{ background: "#050000" }}>
@@ -253,6 +254,14 @@ function ExpertDashboard() {
             <FaBug /> MALWARE ANALYSIS
           </li>
 
+          {/* 🔥 চ্যাট ট্যাব যোগ করা হলো */}
+          <li
+            className={`nav-item ${activeTab === "chat" ? "active" : ""}`}
+            onClick={() => setActiveTab("chat")}
+          >
+            <FaComments /> LIVE CHAT
+          </li>
+
           <li className="nav-item" onClick={() => navigate("/settings")}>
             <FaCog /> SETTINGS
           </li>
@@ -269,7 +278,7 @@ function ExpertDashboard() {
         {/* HEADER */}
         <header className="dashboard-header">
           <h2 className="text-white" style={{ fontFamily: "Orbitron" }}>
-            {activeTab === "threat-map" ? "THREAT INTELLIGENCE" : "MALWARE LAB"}
+            {activeTab === "threat-map" ? "THREAT INTELLIGENCE" : activeTab === "malware" ? "MALWARE LAB" : "SECURE COMMUNICATION"}
           </h2>
         </header>
 
@@ -410,6 +419,13 @@ function ExpertDashboard() {
                 )}
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {/* 🔥 VIEW: LIVE CHAT */}
+        {activeTab === 'chat' && (
+          <motion.div initial={{opacity: 0, y: 20}} animate={{opacity: 1, y: 0}} className="p-3">
+            <ExpertChat />
           </motion.div>
         )}
 

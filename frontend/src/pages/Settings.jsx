@@ -5,8 +5,8 @@ import { motion } from 'framer-motion';
 import { 
   FaThLarge, FaSearch, FaShieldAlt, FaHistory, FaCog, FaSignOutAlt, 
   FaUserCircle, FaLock, FaUserShield, FaEnvelope, FaSave,
-  FaGlobe, FaBug, FaUsers, FaServer, FaUserSecret
-} from 'react-icons/fa';
+  FaGlobe, FaBug, FaUsers, FaServer, FaUserSecret, FaComments 
+} from 'react-icons/fa'; // 🔥 FaComments ইমপোর্ট করা হলো
 import '../styles/Dashboard.css';
 
 function Settings() {
@@ -78,6 +78,7 @@ function Settings() {
             <>
               <li className="nav-item" onClick={() => navigate('/expert-dashboard')}><FaGlobe /> THREAT MAP</li>
               <li className="nav-item" onClick={() => navigate('/expert-dashboard')}><FaBug /> MALWARE ANALYSIS</li>
+              <li className="nav-item" onClick={() => navigate('/expert-dashboard')}><FaComments /> LIVE CHAT</li> {/* 🔥 এক্সপার্টের জন্য চ্যাট অপশন */}
             </>
           )}
           {role === 'user' && (
@@ -85,6 +86,7 @@ function Settings() {
               <li className="nav-item" onClick={() => navigate('/dashboard')}><FaThLarge /> OVERVIEW</li>
               <li className="nav-item" onClick={() => navigate('/dashboard')}><FaSearch /> AI SCANNER</li>
               <li className="nav-item" onClick={() => navigate('/dashboard')}><FaHistory /> HISTORY LOGS</li>
+              <li className="nav-item" onClick={() => navigate('/dashboard')}><FaComments /> LIVE CHAT</li> {/* 🔥 ইউজারের জন্য চ্যাট অপশন */}
             </>
           )}
           <li className="nav-item active" style={{color: themeColor, borderLeft: `3px solid ${themeColor}`, background: `${themeColor}15`}}>

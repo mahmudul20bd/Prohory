@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaThLarge, FaSearch, FaShieldAlt, FaHistory, FaCog, FaSignOutAlt, 
-  FaUserCircle, FaNetworkWired, FaBolt, FaCheckCircle, FaBullhorn, FaExclamationTriangle, FaBan
+  FaUserCircle, FaNetworkWired, FaBolt, FaCheckCircle, FaBullhorn, FaExclamationTriangle, FaBan,
+  FaComments
 } from 'react-icons/fa';
 import '../styles/Dashboard.css';
+import ExpertChat from './ExpertChat'; // 🔥 চ্যাট ইমপোর্ট করা হলো
 
 function UserDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -22,14 +24,13 @@ function UserDashboard() {
   const token = localStorage.getItem('token');
 
   // --- 1. CONFIGURATION FOR 4 CATEGORIES ---
-  // এখানে ৪টি ক্যাটাগরির জন্য রঙ, টেক্সট এবং আইকন সেট করা হয়েছে
   const getResultStyle = (label) => {
     const normalizedLabel = label ? label.toUpperCase() : '';
     
     switch (normalizedLabel) {
       case 'SAFE':
         return {
-          color: '#00ff9d', // Green
+          color: '#00ff9d', 
           bg: 'rgba(0, 255, 157, 0.1)',
           border: '#00ff9d',
           title: 'CLEAN MESSAGE',
@@ -37,7 +38,7 @@ function UserDashboard() {
         };
       case 'PROMO':
         return {
-          color: '#00f3ff', // Blue
+          color: '#00f3ff', 
           bg: 'rgba(0, 243, 255, 0.1)',
           border: '#00f3ff',
           title: 'PROMOTIONAL',
@@ -45,7 +46,7 @@ function UserDashboard() {
         };
       case 'SPAM':
         return {
-          color: '#ffca00', // Yellow/Orange
+          color: '#ffca00', 
           bg: 'rgba(255, 202, 0, 0.1)',
           border: '#ffca00',
           title: 'SPAM DETECTED',
@@ -54,7 +55,7 @@ function UserDashboard() {
       case 'DANGER':
       case 'SCAM':
         return {
-          color: '#ff003c', // Red
+          color: '#ff003c', 
           bg: 'rgba(255, 0, 60, 0.1)',
           border: '#ff003c',
           title: 'THREAT DETECTED',
@@ -88,7 +89,6 @@ function UserDashboard() {
       
       setHistory(data);
       
-      // Stats Logic
       const threatCount = data.filter(item => 
         ['DANGER', 'SCAM'].includes(item.aiResult)
       ).length;
@@ -158,9 +158,13 @@ function UserDashboard() {
           <li className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
             <FaHistory /> HISTORY LOGS
           </li>
+          {/* 🔥 চ্যাট ট্যাব যোগ করা হলো */}
+          <li className={`nav-item ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
+            <FaComments /> LIVE CHAT
+          </li>
           <li className="nav-item" onClick={() => navigate('/settings')}>
-  <FaCog /> SETTINGS
-</li>
+            <FaCog /> SETTINGS
+          </li>
         </ul>
 
         <div className="user-profile-mini">
@@ -185,6 +189,7 @@ function UserDashboard() {
               {activeTab === 'overview' && 'SYSTEM OVERVIEW'}
               {activeTab === 'scan' && 'THREAT DETECTION'}
               {activeTab === 'history' && 'ACTIVITY LOGS'}
+              {activeTab === 'chat' && 'SECURE COMMUNICATION'}
             </h2>
             <small className="text-secondary">Connected to Secure Node: 192.168.X.X</small>
           </div>
@@ -357,6 +362,13 @@ function UserDashboard() {
                   </table>
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {/* 🔥 VIEW: LIVE CHAT */}
+          {activeTab === 'chat' && (
+            <motion.div initial={{opacity: 0, y: 20}} animate={{opacity: 1, y: 0}}>
+              <ExpertChat />
             </motion.div>
           )}
 

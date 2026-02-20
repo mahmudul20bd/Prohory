@@ -6,7 +6,7 @@ import './index.css' // বেসিক স্টাইল
 import './App.css'   // <--- এই লাইনটি আপনার মিসিং ছিল! এটিই মূল ডিজাইন আনবে।
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
+ // <React.StrictMode>
     <App />
-  </React.StrictMode>,
+ // </React.StrictMode>,
 )
