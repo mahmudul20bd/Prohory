@@ -5,12 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,70 +49,48 @@ fun OnboardingScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Onboarding Data
     val pages = listOf(
-        OnboardingPage(R.raw.scan_anim, "Real-time Protection", "Advanced AI algorithms designed to detect threats instantly."),
-        OnboardingPage(R.raw.scan_anim, "Cloud Intelligence", "Sync with global defense networks to stay ahead of emerging threats."),
-        OnboardingPage(R.raw.scan_anim, "Total Security", "Activate Guardian Mode to secure your device from digital fraud.")
+        OnboardingPage(R.raw.scan_anim, "THREAT DETECTION", "Advanced neural network algorithms designed to intercept real-time zero-day vulnerabilities."),
+        OnboardingPage(R.raw.cloud_anim, "GLOBAL INTELLIGENCE", "Synchronize with worldwide defense grids to stay ahead of modern phishing vectors."),
+        OnboardingPage(R.raw.cyber_success, "SYSTEM SECURED", "Deploy the ultimate firewall. Your identity, your data, fully encrypted and locked.")
     )
 
     val pagerState = rememberPagerState(pageCount = { pages.size })
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF050A14))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
+        Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+
             // Skip Button
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.TopEnd
-            ) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd) {
                 TextButton(onClick = { finishOnboarding(context) }) {
-                    Text("SKIP", color = Color.Gray, letterSpacing = 1.sp)
+                    Text("SKIP SEQUENCE", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                }
+            }
+
+            // Slider Section
+            HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { position ->
+                OnboardingPageContent(pages[position])
+            }
+
+            // Cyber Indicators
+            Row(modifier = Modifier.height(40.dp).fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                repeat(pages.size) { iteration ->
+                    val color = if (pagerState.currentPage == iteration) NeonCyan else Color.DarkGray
+                    val width by animateDpAsState(targetValue = if (pagerState.currentPage == iteration) 30.dp else 10.dp, label = "indicator")
+
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(color)
+                            .size(width = width, height = 4.dp)
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Slider Section
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f)
-            ) { position ->
-                OnboardingPageContent(pages[position])
-            }
-
-            // Indicators
-            Row(
-                modifier = Modifier
-                    .height(50.dp)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                repeat(pages.size) { iteration ->
-                    val color = if (pagerState.currentPage == iteration) NeonBlue else Color.DarkGray
-                    val width = if (pagerState.currentPage == iteration) 24.dp else 10.dp
-
-                    Box(
-                        modifier = Modifier
-                            .padding(4.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .size(width = width, height = 10.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(30.dp))
-
-            // Next / Get Started Button
+            // Action Button
             Button(
                 onClick = {
                     scope.launch {
@@ -127,73 +106,55 @@ fun OnboardingScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(55.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple))
-                    )
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)))
             ) {
                 Text(
-                    text = if (pagerState.currentPage == pages.size - 1) "GET STARTED" else "NEXT",
+                    text = if (pagerState.currentPage == pages.size - 1) "INITIALIZE PROTOCOL" else "NEXT MODULE",
                     color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp
                 )
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(10.dp))
         }
     }
 }
 
 @Composable
 fun OnboardingPageContent(page: OnboardingPage) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // Lottie Animation
-        val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(page.anim))
-        LottieAnimation(
-            composition = composition,
-            iterations = LottieConstants.IterateForever,
-            modifier = Modifier
-                .size(300.dp)
-                .fillMaxWidth()
-        )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center, modifier = Modifier.fillMaxSize()) {
+
+        // Holographic Platform
+        Box(contentAlignment = Alignment.BottomCenter) {
+            Box(modifier = Modifier.width(200.dp).height(20.dp).background(Brush.radialGradient(listOf(NeonCyan.copy(alpha = 0.5f), Color.Transparent))))
+            val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(page.anim))
+            LottieAnimation(composition = composition, iterations = LottieConstants.IterateForever, modifier = Modifier.size(280.dp))
+        }
 
         Spacer(modifier = Modifier.height(40.dp))
 
-        Text(
-            text = page.title,
-            color = Color.White,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = page.desc,
-            color = Color.Gray,
-            fontSize = 16.sp,
-            textAlign = TextAlign.Center,
-            lineHeight = 24.sp,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
+        // Text Card
+        Surface(
+            color = Color(0xFF0B1221).copy(alpha = 0.8f),
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.2f)),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(text = page.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = page.desc, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 22.sp)
+            }
+        }
     }
 }
 
 fun finishOnboarding(context: Context) {
     val sharedPref = context.getSharedPreferences("AppPref", Context.MODE_PRIVATE)
-    val editor = sharedPref.edit()
-    editor.putBoolean("FirstTime", false)
-    editor.apply()
-
+    sharedPref.edit().putBoolean("FirstTime", false).apply()
     context.startActivity(Intent(context, LoginActivity::class.java))
-    // Activity close logic handled by system
 }
 
 data class OnboardingPage(val anim: Int, val title: String, val desc: String)

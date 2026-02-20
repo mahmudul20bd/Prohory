@@ -1,13 +1,15 @@
 package com.cyberaware.app
 
+import android.content.Context
 import android.os.Bundle
-import android.widget.Toast
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,309 +18,285 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.AttachFile
-import androidx.compose.material.icons.rounded.CameraAlt
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Send
-import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cyberaware.app.ui.theme.*
+import com.cyberaware.app.ui.theme.CyberAwareTheme
+import com.cyberaware.app.ui.theme.NeonBlue
+import com.cyberaware.app.ui.theme.NeonCyan
+import com.cyberaware.app.ui.theme.NeonPurple
+import com.google.gson.Gson
+import io.reactivex.android.schedulers.AndroidSchedulers
+import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.schedulers.Schedulers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import ua.naiksoftware.stomp.Stomp
+import ua.naiksoftware.stomp.StompClient
+import java.text.SimpleDateFormat
+import java.util.*
+
+// Data Models
+data class ChatMessage(val id: String, val text: String, val isMe: Boolean, val timestamp: String, val isSystem: Boolean = false, val isFile: Boolean = false)
+
+data class BackendChatMessage(
+    val senderUsername: String,
+    val receiverUsername: String,
+    val content: String,
+    val fileUrl: String? = null,
+    val timestamp: String? = null
+)
+
+enum class SupportState { CONNECTING, READY_TO_CHAT, EXPERT_JOINED }
 
 class ExpertChatActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             CyberAwareTheme {
-                AdvancedChatScreen(onBack = { finish() })
+                DynamicSupportScreen(onBack = { finish() })
             }
         }
     }
 }
 
-// --- DATA MODELS ---
-enum class MsgType { TEXT, IMAGE, AUDIO }
-data class ChatMessage(
-    val id: String,
-    val content: String,
-    val isMe: Boolean,
-    val type: MsgType = MsgType.TEXT,
-    val time: String = "Now"
-)
+@Composable
+fun DynamicSupportScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+
+    val prefs = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    val currentUser = prefs.getString("USERNAME", "User") ?: "User"
+
+    var currentState by remember { mutableStateOf(SupportState.CONNECTING) }
+    var currentExpertName by remember { mutableStateOf("Support Pool") }
+
+    val messages = remember { mutableStateListOf<ChatMessage>() }
+    var stompClient by remember { mutableStateOf<StompClient?>(null) }
+    val compositeDisposable = remember { CompositeDisposable() }
+
+    fun getTime() = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+
+    // 🔥 REAL WEBSOCKET CONNECTION 🔥
+    LaunchedEffect(Unit) {
+        messages.add(ChatMessage(UUID.randomUUID().toString(), "Establishing secure connection to Server...", isMe = false, getTime(), isSystem = true))
+
+        try {
+            val client = Stomp.over(Stomp.ConnectionProvider.OKHTTP, "wss://cyber-aware.onrender.com/ws/websocket")
+            client.connect()
+            stompClient = client
+
+            delay(1000)
+            currentState = SupportState.READY_TO_CHAT
+            messages.add(ChatMessage(UUID.randomUUID().toString(), "Connected. Please describe your issue below.", isMe = false, getTime(), isSystem = true))
+
+            val topicSubscription = client.topic("/topic/messages")
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe({ topicMessage ->
+                    val payload = Gson().fromJson(topicMessage.payload, BackendChatMessage::class.java)
+
+                    if (payload.senderUsername != currentUser) {
+                        if (currentState != SupportState.EXPERT_JOINED) {
+                            currentState = SupportState.EXPERT_JOINED
+                            currentExpertName = payload.senderUsername
+                            messages.add(ChatMessage(UUID.randomUUID().toString(), "$currentExpertName has joined the secure chat.", isMe = false, getTime(), isSystem = true))
+                        }
+
+                        messages.add(
+                            ChatMessage(id = UUID.randomUUID().toString(), text = payload.content, isMe = false, timestamp = getTime())
+                        )
+                        coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
+                    }
+                }, { error ->
+                    Log.e("ChatError", "Error receiving message", error)
+                })
+
+            compositeDisposable.add(topicSubscription)
+
+        } catch (e: Exception) {
+            messages.add(ChatMessage(UUID.randomUUID().toString(), "Connection Failed. Try again.", isMe = false, getTime(), isSystem = true))
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            compositeDisposable.dispose()
+            stompClient?.disconnect()
+        }
+    }
+
+    // Message Send Logic (Called from Input Component)
+    fun sendMessage(textToSend: String) {
+        if (stompClient?.isConnected == true) {
+            messages.add(ChatMessage(UUID.randomUUID().toString(), textToSend, isMe = true, getTime()))
+            coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
+
+            val msgObj = BackendChatMessage(senderUsername = currentUser, receiverUsername = currentExpertName, content = textToSend)
+            val jsonPayload = Gson().toJson(msgObj)
+
+            stompClient!!.send("/app/chat.send", jsonPayload)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe({ Log.d("Chat", "Sent successfully") }, { Log.e("Chat", "Send failed") })
+        }
+    }
+
+    // UI Structure
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // 🔥 Isolated Header Component
+            ChatHeader(
+                currentState = currentState,
+                currentExpertName = currentExpertName,
+                onBack = onBack
+            )
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(messages) { msg -> ChatBubble(msg) }
+            }
+
+            // 🔥 Isolated Input Box Component (Fixes Focus Bug)
+            ChatInputArea(
+                isInputEnabled = currentState != SupportState.CONNECTING,
+                onSendMessage = { text -> sendMessage(text) }
+            )
+        }
+    }
+}
+
+// ==========================================
+// 🔥 ISOLATED COMPONENTS (For Performance)
+// ==========================================
+
+@Composable
+fun ChatHeader(currentState: SupportState, currentExpertName: String, onBack: () -> Unit) {
+    Surface(color = Color(0xFF0B1221).copy(alpha = 0.95f), modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp) {
+        Row(modifier = Modifier.fillMaxWidth().padding(16.dp).padding(top = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
+
+                val infiniteTransition = rememberInfiniteTransition()
+                val pulse by infiniteTransition.animateFloat(initialValue = 0.4f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse))
+                val dotColor = when(currentState) {
+                    SupportState.CONNECTING -> Color.Gray
+                    SupportState.READY_TO_CHAT -> Color(0xFFFF9800)
+                    SupportState.EXPERT_JOINED -> Color.Green
+                }
+
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    Box(modifier = Modifier.size(45.dp).background(NeonBlue.copy(0.1f), CircleShape).border(1.dp, NeonBlue, CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(if(currentState == SupportState.EXPERT_JOINED) Icons.Default.SupportAgent else Icons.Default.Computer, contentDescription = "Avatar", tint = NeonCyan, modifier = Modifier.size(28.dp))
+                    }
+                    Box(modifier = Modifier.size(12.dp).background(dotColor.copy(alpha = pulse), CircleShape).border(2.dp, Color(0xFF0B1221), CircleShape))
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = if (currentState == SupportState.EXPERT_JOINED) currentExpertName.uppercase() else "WAITING FOR AGENT...",
+                        color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = when(currentState) {
+                            SupportState.CONNECTING -> "Connecting to server..."
+                            SupportState.READY_TO_CHAT -> "In Support Queue"
+                            SupportState.EXPERT_JOINED -> "Secure Channel Locked"
+                        },
+                        color = dotColor, fontSize = 10.sp, fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdvancedChatScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+fun ChatInputArea(isInputEnabled: Boolean, onSendMessage: (String) -> Unit) {
+    // 🔥 State is now inside the input area to prevent full screen refresh
+    var messageText by rememberSaveable { mutableStateOf("") }
 
-    // States
-    var message by remember { mutableStateOf("") }
-    var showAttachMenu by remember { mutableStateOf(false) }
-    var isRecording by remember { mutableStateOf(false) }
+    Surface(color = Color(0xFF0B1221), modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
 
-    // Dummy Real-time Data
-    val chatHistory = remember { mutableStateListOf(
-        ChatMessage("1", "Hello Agent Prohory! 👋", false),
-        ChatMessage("2", "Our AI detected a potential threat in your network.", false),
-        ChatMessage("3", "Can you send the screenshot?", false)
-    )}
+            IconButton(
+                onClick = { /* File Picker */ },
+                enabled = isInputEnabled,
+                modifier = Modifier.background(if(isInputEnabled) Color(0xFF1E293B) else Color.DarkGray, CircleShape).size(45.dp)
+            ) { Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if(isInputEnabled) NeonCyan else Color.Gray) }
 
-    // Auto Scroll to Bottom when new message arrives
-    LaunchedEffect(chatHistory.size) {
-        listState.animateScrollToItem(chatHistory.size - 1)
-    }
+            Spacer(modifier = Modifier.width(12.dp))
 
-    Scaffold(
-        // 🔥 HEADER WITH CALL OPTIONS
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.Green)
-                                .border(2.dp, Color.White, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.SupportAgent, contentDescription = null, tint = Color.Black)
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("Cyber Expert", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(modifier = Modifier.size(6.dp).background(SuccessGreen, CircleShape))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Online | Typing...", color = SuccessGreen, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { Toast.makeText(context, "Voice Calling...", Toast.LENGTH_SHORT).show() }) {
-                        Icon(Icons.Filled.Call, contentDescription = "Call", tint = NeonCyan)
-                    }
-                    IconButton(onClick = { Toast.makeText(context, "Video Calling...", Toast.LENGTH_SHORT).show() }) {
-                        Icon(Icons.Rounded.Videocam, contentDescription = "Video", tint = NeonCyan)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0B1221))
+            OutlinedTextField(
+                value = messageText,
+                onValueChange = { messageText = it },
+                enabled = isInputEnabled,
+                placeholder = { Text(text = if(isInputEnabled) "Type your issue here..." else "Connecting...", color = Color.Gray, fontSize = 13.sp) },
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(25.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFF1E293B), unfocusedContainerColor = Color(0xFF1E293B), disabledContainerColor = Color(0xFF0F172A),
+                    focusedBorderColor = NeonCyan, unfocusedBorderColor = Color.Transparent, disabledBorderColor = Color.Transparent,
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White
+                ),
+                singleLine = true
             )
-        },
-        containerColor = Color(0xFF050A14)
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            // 🔥 CHAT LIST
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 80.dp), // Input bar এর জন্য জায়গা
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(chatHistory) { chat ->
-                    ChatBubbleItem(chat)
-                }
-            }
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // 🔥 ATTACHMENT MENU (ANIMATED)
-            AnimatedVisibility(
-                visible = showAttachMenu,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)
-            ) {
-                AttachmentPopup { type ->
-                    // Fake File Upload Logic
-                    chatHistory.add(ChatMessage(System.currentTimeMillis().toString(), "File Uploaded: $type", true, MsgType.IMAGE))
-                    showAttachMenu = false
-                }
-            }
-
-            // 🔥 BOTTOM INPUT BAR
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .background(Color(0xFF0B1221))
-                    .padding(10.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Attach Button
-                    IconButton(onClick = { showAttachMenu = !showAttachMenu }) {
-                        Icon(
-                            if(showAttachMenu) Icons.Default.Close else Icons.Rounded.AttachFile,
-                            contentDescription = "Attach",
-                            tint = Color.Gray,
-                            modifier = Modifier.rotate(45f) // Pin style look
-                        )
-                    }
-
-                    // Input Field
-                    TextField(
-                        value = message,
-                        onValueChange = { message = it },
-                        placeholder = { Text("Type a message...", color = Color.Gray) },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF161B28),
-                            unfocusedContainerColor = Color(0xFF161B28),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = NeonBlue,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 50.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Mic or Send Button
-                    FloatingActionButton(
-                        onClick = {
-                            if (message.isNotEmpty()) {
-                                chatHistory.add(ChatMessage(System.currentTimeMillis().toString(), message, true))
-                                message = ""
-                                // Fake Reply
-                                scope.launch {
-                                    delay(2000)
-                                    chatHistory.add(ChatMessage("x", "We are analyzing your request...", false))
-                                }
-                            } else {
-                                isRecording = !isRecording
-                            }
-                        },
-                        containerColor = if(isRecording) ErrorRed else NeonBlue,
-                        contentColor = Color.White,
-                        shape = CircleShape,
-                        modifier = Modifier.size(50.dp)
-                    ) {
-                        Icon(
-                            if (message.isEmpty()) Icons.Rounded.Mic else Icons.Rounded.Send,
-                            contentDescription = "Send"
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --- 💬 MESSAGE BUBBLES ---
-@Composable
-fun ChatBubbleItem(chat: ChatMessage) {
-    val isMe = chat.isMe
-    val align = if (isMe) Alignment.End else Alignment.Start
-    val color = if (isMe) NeonBlue else Color(0xFF1E293B)
-    val shape = if (isMe) RoundedCornerShape(18.dp, 18.dp, 2.dp, 18.dp)
-    else RoundedCornerShape(18.dp, 18.dp, 18.dp, 2.dp)
-
-    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = align) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(shape)
-                .background(color)
-                .padding(12.dp)
-        ) {
-            when(chat.type) {
-                MsgType.TEXT -> {
-                    Text(chat.content, color = Color.White, fontSize = 15.sp)
-                }
-                MsgType.IMAGE -> {
-                    Column {
-                        Box(
-                            modifier = Modifier
-                                .size(150.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.Black.copy(alpha = 0.3f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Rounded.Image, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
-                        }
-                        Text("screenshot.jpg", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(top=4.dp))
-                    }
-                }
-                MsgType.AUDIO -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Divider(modifier = Modifier.width(100.dp), color = Color.White, thickness = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("0:15", color = Color.White)
-                    }
-                }
-            }
-        }
-        Text(
-            text = chat.time,
-            color = Color.Gray,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp)
-        )
-    }
-}
-
-// --- 📎 ATTACHMENT MENU ---
-@Composable
-fun AttachmentPopup(onSelect: (String) -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            AttachItem(Icons.Rounded.Description, Color(0xFF7C4DFF), "Document") { onSelect("DOC") }
-            AttachItem(Icons.Rounded.CameraAlt, Color(0xFFFF4081), "Camera") { onSelect("CAM") }
-            AttachItem(Icons.Rounded.Image, Color(0xFF448AFF), "Gallery") { onSelect("IMG") }
+            IconButton(
+                onClick = {
+                    onSendMessage(messageText)
+                    messageText = "" // মেসেজ পাঠানোর পর বক্স ক্লিয়ার হবে
+                },
+                enabled = isInputEnabled && messageText.isNotBlank(),
+                modifier = Modifier.background(if(isInputEnabled && messageText.isNotBlank()) Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)) else Brush.horizontalGradient(listOf(Color.DarkGray, Color.DarkGray)), CircleShape).size(45.dp)
+            ) { Icon(Icons.Default.Send, contentDescription = "Send", tint = if(isInputEnabled && messageText.isNotBlank()) Color.White else Color.Gray) }
         }
     }
 }
 
 @Composable
-fun AttachItem(icon: ImageVector, color: Color, label: String, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
-        Box(
-            modifier = Modifier.size(50.dp).clip(CircleShape).background(color),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White)
+fun ChatBubble(msg: ChatMessage) {
+    if (msg.isSystem) {
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+            Surface(color = Color(0xFF1E293B).copy(alpha = 0.6f), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, Color.DarkGray)) {
+                Text(msg.text, color = Color.Yellow, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(label, color = Color.White, fontSize = 12.sp)
+        return
+    }
+
+    val align = if (msg.isMe) Alignment.CenterEnd else Alignment.CenterStart
+    val bgColor = if (msg.isMe) NeonBlue.copy(alpha = 0.2f) else Color(0xFF1E293B)
+    val borderColor = if (msg.isMe) NeonCyan else Color.DarkGray
+    val shape = if (msg.isMe) RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp)
+
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = align) {
+        Column(horizontalAlignment = if (msg.isMe) Alignment.End else Alignment.Start) {
+            Surface(color = bgColor, shape = shape, border = BorderStroke(1.dp, borderColor), modifier = Modifier.widthIn(max = 280.dp)) {
+                Text(text = msg.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), lineHeight = 20.sp)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = msg.timestamp, color = Color.Gray, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        }
     }
 }
-
-// Helper for Rotation
-fun Modifier.rotate(degrees: Float) = this.then(Modifier.graphicsLayer(rotationZ = degrees))

@@ -1,7 +1,6 @@
 package com.cyberaware.app.network
 
 import com.google.gson.annotations.SerializedName
-import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -45,6 +44,13 @@ data class SystemLog(
     val timestamp: String?
 )
 
+// 🔥 স্প্যাম চেকের জন্য নতুন রেসপন্স মডেল
+data class SpamResponse(
+    val isSpam: Boolean,
+    val threatLevel: String? = null,
+    val message: String? = null
+)
+
 interface ApiService {
     @POST("/api/auth/register")
     suspend fun registerUser(@Body payload: Map<String, String>): Response<RegisterResponse>
@@ -63,4 +69,11 @@ interface ApiService {
 
     @GET("/api/logs")
     suspend fun getNeuralLogs(@Header("Authorization") token: String): Response<List<SystemLog>>
+
+    // 🔥 ব্যাকএন্ডে স্প্যাম চেক করার জন্য নতুন মেথড (এই লাইনটি মিসিং ছিল)
+    @POST("/api/scan/sms")
+    suspend fun checkSpamOnline(
+        @Header("Authorization") token: String,
+        @Body payload: Map<String, String>
+    ): Response<SpamResponse>
 }

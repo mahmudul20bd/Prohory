@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">CyberAware</string>
+    <string name="app_name">Prohory</string>
+    <string name="accessibility_desc">Prohory Security Core to monitor and protect locked apps.</string>
 </resources>

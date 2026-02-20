@@ -54,13 +54,11 @@ class NeuralLogsActivity : ComponentActivity() {
 @Composable
 fun NeuralLogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-
     val logsList = remember { mutableStateListOf<SystemLog>() }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
     var userRole by remember { mutableStateOf("Agent") }
 
-    // Fetch Logs and Apply Privacy Filter
     LaunchedEffect(Unit) {
         val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
         val token = sharedPref.getString("auth_token", "") ?: ""
@@ -73,12 +71,11 @@ fun NeuralLogsScreen(onBack: () -> Unit) {
                 if (response.isSuccessful && response.body() != null) {
                     val allLogs = response.body()!!
 
-                    // 🔥 PRIVACY LOGIC: Admin হলে সব দেখবে, নতুবা শুধু নিজের লগ দেখবে
-                    val filteredLogs = if (userRole.uppercase() == "ADMIN" || userRole.uppercase() == "ROOT") {
+                    val filteredLogs = if (userRole.uppercase() == "ADMIN") {
                         allLogs.reversed()
                     } else {
-                        // সাধারণ ইউজার শুধু নিজের স্ক্যান, থ্রেট এবং লগইন হিস্ট্রি দেখবে
-                        allLogs.filter { it.username == myUsername }.reversed()
+                        // 🔥 FIX: Check for nulls or matches
+                        allLogs.filter { it.username == myUsername || it.username == null || it.username == "null" }.reversed()
                     }
 
                     logsList.addAll(filteredLogs)
@@ -96,24 +93,12 @@ fun NeuralLogsScreen(onBack: () -> Unit) {
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))
-    ) {
-        // Subtle Cyber Grid Background
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
         CyberGridBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // Custom Top Bar
-            Surface(
-                color = Color(0xFF0B1221).copy(alpha = 0.9f),
-                modifier = Modifier.fillMaxWidth().border(1.dp, Color.White.copy(0.05f))
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+            Surface(color = Color(0xFF0B1221).copy(alpha = 0.9f), modifier = Modifier.fillMaxWidth().border(1.dp, Color.White.copy(0.05f))) {
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
                         Spacer(modifier = Modifier.width(8.dp))
@@ -122,7 +107,6 @@ fun NeuralLogsScreen(onBack: () -> Unit) {
                         Text("NEURAL LOGS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
                     }
 
-                    // Admin ব্যাজ দেখানো (যদি এডমিন হয়)
                     if (userRole.uppercase() == "ADMIN") {
                         Surface(color = Color.Red.copy(0.2f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, Color.Red)) {
                             Text("ADMIN VIEW", color = Color.Red, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
@@ -135,31 +119,15 @@ fun NeuralLogsScreen(onBack: () -> Unit) {
                 }
             }
 
-            // Log Content Area
             if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = NeonCyan)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("DECRYPTING PERSONAL LOGS...", color = NeonCyan, fontFamily = FontFamily.Monospace)
-                    }
-                }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = NeonCyan) }
             } else if (errorMessage.isNotEmpty() && logsList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(errorMessage, color = Color.Red, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(32.dp))
-                }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(errorMessage, color = Color.Red) }
             } else if (logsList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("NO PERSONAL ACTIVITY FOUND.", color = Color.Gray, fontFamily = FontFamily.Monospace)
-                }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("NO PERSONAL ACTIVITY FOUND.", color = Color.Gray) }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(logsList) { log ->
-                        LogCardItem(log)
-                    }
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(logsList) { log -> LogCardItem(log) }
                 }
             }
         }
@@ -175,57 +143,36 @@ fun LogCardItem(log: SystemLog) {
         else -> Pair(Icons.Default.Security, Color.Green)
     }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF131C2B),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, tintColor.copy(alpha = 0.3f))
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Icon Background
-            Box(
-                modifier = Modifier.size(40.dp).background(tintColor.copy(alpha = 0.1f), CircleShape).border(1.dp, tintColor.copy(alpha = 0.5f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
+    val performer = if (log.username == null || log.username == "null") "System" else log.username
+    val finalDetails = log.details.replace("Agent null", "Agent $performer")
+
+    Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF131C2B), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, tintColor.copy(alpha = 0.3f))) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).background(tintColor.copy(alpha = 0.1f), CircleShape).border(1.dp, tintColor.copy(alpha = 0.5f), CircleShape), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = null, tint = tintColor, modifier = Modifier.size(20.dp))
             }
-
             Spacer(modifier = Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(log.actionType.uppercase(), color = tintColor, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                     Text(log.timestamp?.take(10) ?: "Just now", color = Color.Gray, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(log.details, color = Color.White.copy(0.9f), fontSize = 13.sp, lineHeight = 18.sp)
-
-                // শুধুমাত্র এডমিনদের ক্ষেত্রে ইউজারের নাম দেখানো হবে, সাধারণ ইউজারের ক্ষেত্রে এটি দেখানোর দরকার নেই কারণ ডেটাটি তার নিজেরই।
+                Text(finalDetails, color = Color.White.copy(0.9f), fontSize = 13.sp, lineHeight = 18.sp)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Target: ${log.username}", color = NeonBlue, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("Target: $performer", color = NeonBlue, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             }
         }
     }
 }
 
-// Subtle Cyber Grid Effect
 @Composable
 fun CyberGridBackground() {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val gridSize = 100f
         val cols = (size.width / gridSize).toInt()
         val rows = (size.height / gridSize).toInt()
-
-        for (i in 0..cols) {
-            val x = i * gridSize
-            drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(x, 0f), end = Offset(x, size.height), strokeWidth = 2f)
-        }
-        for (i in 0..rows) {
-            val y = i * gridSize
-            drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(0f, y), end = Offset(size.width, y), strokeWidth = 2f)
-        }
+        for (i in 0..cols) { drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(i * gridSize, 0f), end = Offset(i * gridSize, size.height), strokeWidth = 2f) }
+        for (i in 0..rows) { drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(0f, i * gridSize), end = Offset(size.width, i * gridSize), strokeWidth = 2f) }
     }
 }

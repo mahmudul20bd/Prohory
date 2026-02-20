@@ -63,8 +63,15 @@ android {
 }
 
 dependencies {
+
+    implementation("com.github.NaikSoftware:StompProtocolAndroid:1.6.6")
+    implementation("com.google.code.gson:gson:2.10.1")
+    // Required for Biometric Authentication to work with Compose
+    implementation("androidx.appcompat:appcompat:1.6.1")
     // 🔥 Google ML Kit - Text Recognition (OCR)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    // Coroutines support for Google Play Services Tasks (for ML Kit await)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // 🔥 CORE LIBRARIES
     implementation("androidx.core:core-ktx:1.12.0")
@@ -104,6 +111,8 @@ dependencies {
     // 🔥 NETWORKING
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    // AndroidX Biometric for Fingerprint/Face Unlock
+    implementation("androidx.biometric:biometric:1.1.0")
 
     // 🔥 TESTING
     testImplementation("junit:junit:4.13.2")
@@ -113,6 +122,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
+    // Google ML Kit for Offline Text Recognition (OCR)
+    implementation ("com.google.mlkit:text-recognition:16.0.0")
     // Retrofit & Gson for API Calls
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")

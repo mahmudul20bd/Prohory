@@ -10,8 +10,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
 
 
     <application
@@ -44,8 +48,12 @@
             android:exported="true"
             android:theme="@style/Theme.Prohory" />
 
-        <activity android:name=".ScreenshotAnalysisActivity" android:exported="false" />
-        <activity android:name=".ExpertChatActivity" android:exported="false" />
+        <activity
+            android:name=".ScreenshotAnalysisActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
+
+        <activity android:name=".ExpertChatActivity" android:exported="false" android:theme="@style/Theme.Prohory" />
         <activity android:name=".PhishingScannerActivity" android:exported="false" />
 
         <activity
@@ -58,15 +66,14 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
+
         <activity
             android:name=".RegisterActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"/>
+
+
         <activity
             android:name=".NetworkScanActivity"
             android:exported="false"
@@ -85,25 +92,53 @@
             android:name=".ProfileActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity
+            android:name=".AppLockActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
 
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity
+            android:name=".SecureVaultActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
 
         <activity
             android:name=".ScanDetailActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity
+            android:name=".SmsGuardActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
 
-        <receiver
-            android:name=".SmsReceiver"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS">
+
+        <receiver android:name=".SmsBroadcastReceiver" android:exported="true">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <activity
+            android:name=".BlockUIActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Prohory" />
+
+        <service
+            android:name=".AppMonitorService"
+            android:exported="true"
+            android:label="Prohory Vault Monitor"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
     </application>
 

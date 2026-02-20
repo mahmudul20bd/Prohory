@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -64,9 +66,12 @@ fun LoginScreen() {
     var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF050A14))
-    ) {
+    var isVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { isVisible = true }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
+
+        // 🔥 YOUR FAVORITE FALLING BUBBLE ANIMATION 🔥
         CyberMatrixBackground()
 
         Column(
@@ -74,99 +79,101 @@ fun LoginScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.scan_anim))
-            LottieAnimation(composition = composition, iterations = LottieConstants.IterateForever, modifier = Modifier.size(200.dp).scale(1.2f))
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = slideInVertically(initialOffsetY = { -50 }) + fadeIn(tween(800))
+            ) {
+                val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.scan_anim))
+                LottieAnimation(composition = composition, iterations = LottieConstants.IterateForever, modifier = Modifier.size(180.dp).scale(1.2f))
+            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Text("SYSTEM ACCESS", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            Text("Authenticate Identity", color = NeonCyan, fontSize = 16.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 8.dp, bottom = 32.dp))
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = slideInVertically(initialOffsetY = { 50 }) + fadeIn(tween(800, delayMillis = 300))
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("SYSTEM ACCESS", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                    Text("Authenticate Identity", color = NeonCyan, fontSize = 14.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
 
-            // 🔥 UPDATED LABEL
-            CyberTextField(
-                value = loginId,
-                onValueChange = { loginId = it },
-                label = "Agent ID / Email / Username",
-                icon = Icons.Default.Email
-            )
+                    CyberTextField(value = loginId, onValueChange = { loginId = it }, label = "AGENT ID / EMAIL", icon = Icons.Default.Email)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    CyberTextField(value = password, onValueChange = { password = it }, label = "ACCESS KEY", icon = Icons.Default.Lock, isPassword = true, passwordVisible = passwordVisible, onVisibilityChange = { passwordVisible = !passwordVisible })
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    Text("Lost Key?", color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.End).padding(top = 12.dp, bottom = 24.dp).clickable { })
 
-            CyberTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = "Access Key",
-                icon = Icons.Default.Lock,
-                isPassword = true,
-                passwordVisible = passwordVisible,
-                onVisibilityChange = { passwordVisible = !passwordVisible }
-            )
+                    NeonButton(
+                        text = if (isLoading) "AUTHENTICATING..." else "INITIATE LOGIN",
+                        isLoading = isLoading,
+                        onClick = {
+                            if (loginId.isNotEmpty() && password.isNotEmpty()) {
+                                isLoading = true
+                                coroutineScope.launch {
+                                    try {
+                                        val credentials = mapOf("username" to loginId, "password" to password)
+                                        val response = RetrofitClient.apiService.loginUser(credentials)
 
-            Text("Lost Key?", color = NeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.End).padding(top = 12.dp, bottom = 32.dp).clickable { })
-
-            NeonButton(
-                text = if (isLoading) "AUTHENTICATING..." else "INITIATE LOGIN",
-                isLoading = isLoading,
-                onClick = {
-                    if (loginId.isNotEmpty() && password.isNotEmpty()) {
-                        isLoading = true
-                        coroutineScope.launch {
-                            try {
-                                val credentials = mapOf("username" to loginId, "password" to password)
-                                val response = RetrofitClient.apiService.loginUser(credentials)
-
-                                if (response.isSuccessful && response.body()?.success == true) {
-                                    val authResponse = response.body()!!
-
-                                    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
-                                    with(sharedPref.edit()) {
-                                        putString("auth_token", authResponse.token)
-                                        putString("username", authResponse.username)
-                                        putString("agentId", authResponse.agentId ?: "UNKNOWN")
-                                        apply()
+                                        if (response.isSuccessful && response.body()?.success == true) {
+                                            val authResponse = response.body()!!
+                                            val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+                                            with(sharedPref.edit()) {
+                                                putString("auth_token", authResponse.token)
+                                                putString("username", authResponse.username)
+                                                putString("agentId", authResponse.agentId ?: "UNKNOWN")
+                                                apply()
+                                            }
+                                            Toast.makeText(context, "Access Granted", Toast.LENGTH_SHORT).show()
+                                            context.startActivity(Intent(context, DashboardActivity::class.java))
+                                            (context as? ComponentActivity)?.finish()
+                                        } else {
+                                            Toast.makeText(context, "Invalid Credentials", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Server Error", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isLoading = false
                                     }
-
-                                    Toast.makeText(context, "Access Granted", Toast.LENGTH_SHORT).show()
-                                    context.startActivity(Intent(context, DashboardActivity::class.java))
-                                    (context as? ComponentActivity)?.finish()
-                                } else {
-                                    Toast.makeText(context, "Invalid Credentials", Toast.LENGTH_SHORT).show()
                                 }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Server Error", Toast.LENGTH_SHORT).show()
-                            } finally {
-                                isLoading = false
+                            } else {
+                                Toast.makeText(context, "Credentials Required", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    } else {
-                        Toast.makeText(context, "Credentials Required", Toast.LENGTH_SHORT).show()
+                    )
+
+                    Spacer(modifier = Modifier.height(30.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "Unregistered? ", color = Color.Gray, fontSize = 13.sp)
+                        Text(text = "Join Task Force", color = NeonCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                            context.startActivity(Intent(context, RegisterActivity::class.java))
+                        })
                     }
                 }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Row {
-                Text(text = "New Agent? ", color = Color.Gray)
-                Text(text = "Join Force", color = NeonBlue, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
-                    context.startActivity(Intent(context, RegisterActivity::class.java))
-                })
             }
         }
     }
 }
 
-// --- UPDATED COMPONENTS ---
+// Components
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isPassword: Boolean = false, passwordVisible: Boolean = false, onVisibilityChange: () -> Unit = {}) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+        Text(text = label, color = NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
         OutlinedTextField(
-            value = value, onValueChange = onValueChange, placeholder = { Text("Enter $label", color = Color.Gray) }, leadingIcon = { Icon(icon, contentDescription = null, tint = Color.White) },
+            value = value, onValueChange = onValueChange, placeholder = { Text("Enter $label", color = Color.DarkGray, fontSize = 14.sp) },
+            leadingIcon = { Icon(icon, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp)) },
             trailingIcon = if (isPassword) { { IconButton(onClick = onVisibilityChange) { Icon(imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = null, tint = Color.Gray) } } } else null,
             visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text),
-            singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = NeonBlue, focusedBorderColor = NeonBlue, unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF1E293B), unfocusedContainerColor = Color(0xFF111827)), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                cursorColor = NeonCyan, focusedBorderColor = NeonCyan,
+                unfocusedBorderColor = Color.DarkGray,
+                focusedContainerColor = Color(0xFF0B1221), unfocusedContainerColor = Color(0xFF050A14)
+            ),
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(55.dp)
         )
     }
 }
@@ -174,26 +181,41 @@ fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String
 @Composable
 fun NeonButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
     Button(
-        onClick = onClick, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent), contentPadding = PaddingValues(), shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().height(55.dp).background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)), shape = RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+        onClick = onClick, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent), contentPadding = PaddingValues(), shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().height(55.dp).background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)), shape = RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))
     ) {
         if (isLoading) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp); Spacer(modifier = Modifier.width(12.dp)) }
-        Text(text = text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Text(text = text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
     }
 }
 
+// 🔥 FALLING MATRIX BUBBLES 🔥
 @Composable
 fun CyberMatrixBackground() {
-    val particles = remember { List(50) { MatrixParticle() } }
+    val particles = remember { List(60) { MatrixParticle() } }
     LaunchedEffect(Unit) { while (true) { particles.forEach { it.update() }; delay(16) } }
     Canvas(modifier = Modifier.fillMaxSize()) {
-        particles.forEach { drawCircle(color = NeonBlue.copy(alpha = it.alpha.value), radius = it.radius.value, center = Offset(it.x.value, it.y.value)) }
+        particles.forEach {
+            drawCircle(
+                color = NeonCyan.copy(alpha = it.alpha.value),
+                radius = it.radius.value,
+                center = Offset(it.x.value, it.y.value)
+            )
+        }
     }
 }
 
 class MatrixParticle {
-    val x = mutableStateOf(Random.nextFloat() * 1080); val y = mutableStateOf(Random.nextFloat() * 2400)
-    val radius = mutableStateOf(Random.nextFloat() * 5 + 2); val alpha = mutableStateOf(Random.nextFloat() * 0.5f + 0.1f)
-    private val speed = Random.nextFloat() * 5 + 2
-    fun update() { y.value += speed; if (y.value > 2400) { y.value = 0f; x.value = Random.nextFloat() * 1080 } }
+    val x = mutableStateOf(Random.nextFloat() * 1500f)
+    val y = mutableStateOf(Random.nextFloat() * 3000f)
+    val radius = mutableStateOf(Random.nextFloat() * 6f + 2f)
+    val alpha = mutableStateOf(Random.nextFloat() * 0.4f + 0.1f)
+    private val speed = Random.nextFloat() * 6f + 3f
+    fun update() {
+        y.value += speed
+        if (y.value > 3000f) {
+            y.value = 0f
+            x.value = Random.nextFloat() * 1500f
+        }
+    }
 }
