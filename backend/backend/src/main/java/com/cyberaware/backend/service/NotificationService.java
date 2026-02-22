@@ -22,12 +22,24 @@ public class NotificationService {
         payload.put("message", message);
         payload.put("type", type);
         payload.put("timestamp", java.time.LocalDateTime.now().toString());
-
-        // 🔥 Add full report data also
         payload.put("report", report);
 
         messagingTemplate.convertAndSend("/topic/alerts", (Object) payload);
-
         System.out.println("📢 WebSocket Alert Sent: " + title);
+    }
+
+    // 🔥 NEW: Map Telemetry এর জন্য নতুন মেথড (Error Fixed)
+    public void sendMapTelemetryAlert(String region, boolean isSpam, String type) {
+
+        Map<String, Object> mapAlert = new HashMap<>();
+        mapAlert.put("isSpam", isSpam);
+        mapAlert.put("region", region);
+        mapAlert.put("type", type);
+        mapAlert.put("timestamp", java.time.LocalDateTime.now().toString());
+
+        // 🔥 ঠিক এখানে (Object) কাস্ট করতে হবে, যা আগের কোডে মিসিং ছিল
+        messagingTemplate.convertAndSend("/topic/alerts", (Object) mapAlert);
+
+        System.out.println("📍 Map Telemetry Sent for Region: " + region);
     }
 }

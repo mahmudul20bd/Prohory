@@ -9,6 +9,7 @@ import com.cyberaware.backend.service.EmailService;
 import com.cyberaware.backend.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -34,36 +35,29 @@ public class ReportController {
     @Autowired
     private NotificationService notificationService;
 
+    // 🔥 ম্যাপে রিয়েল-টাইম ডেটা পাঠানোর জন্য এটি যোগ করা হলো
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+
     // ==========================================================
     // ১. নতুন রিপোর্ট তৈরি (AI স্ক্যান + ইমেল অ্যালার্ট + লগ + WS)
     // ==========================================================
     @PostMapping("/report")
     public Report createReport(@RequestBody Report report) {
 
-        // টাইমস্ট্যাম্প সেট করা
         report.setTimestamp(LocalDateTime.now());
-
-        // AI সার্ভিস থেকে রেজাল্ট নিয়ে আসা
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
 
-        // ✅ প্রথমে রিপোর্ট DB তে save করা
         Report savedReport = reportRepository.save(report);
 
-        // যদি বিপজ্জনক (DANGER/SPAM/SCAM) কিছু ডিটেক্ট হয়
         if ("DANGER".equalsIgnoreCase(aiResult)
                 || "SPAM".equalsIgnoreCase(aiResult)
                 || "SCAM".equalsIgnoreCase(aiResult)) {
 
-            // ক. ইমেল অ্যালার্ট পাঠানো
-            emailService.sendAlertEmail(
-                    savedReport.getSender(),
-                    savedReport.getMessage(),
-                    aiResult
-            );
+            emailService.sendAlertEmail(savedReport.getSender(), savedReport.getMessage(), aiResult);
 
-            // খ. রিয়েল-টাইম ড্যাশবোর্ড অ্যালার্ট (WebSocket) পাঠানো
-            // 🔥 FIX: payload এর সাথে full report object পাঠানো হবে
             notificationService.sendGlobalAlert(
                     "CRITICAL THREAT DETECTED",
                     "User " + savedReport.getSender() + " encountered a " + aiResult + " message.",
@@ -71,16 +65,12 @@ public class ReportController {
                     savedReport
             );
 
-            // গ. সিস্টেম লগে সিকিউরিটি ইভেন্ট রেকর্ড করা
             logRepository.save(new SystemLog(
                     "THREAT_DETECTED",
                     savedReport.getSender(),
                     "AI flagged a message as " + aiResult + ": " + savedReport.getMessage()
             ));
-        }
-
-        // ✅ SAFE হলেও expert dashboard instantly update পাবে
-        else {
+        } else {
             notificationService.sendGlobalAlert(
                     "NEW SAFE REPORT",
                     "User " + savedReport.getSender() + " submitted a SAFE message.",
@@ -88,21 +78,54 @@ public class ReportController {
                     savedReport
             );
         }
-
         return savedReport;
     }
 
     // ==========================================================
-    // ২. অ্যাডমিন ও এক্সপার্ট: সব রিপোর্ট দেখার জন্য
+    // 🔥 ২. (NEW) App Telemetry & Spam Scanner Endpoint
+    // অ্যাপ থেকে SMS স্ক্যান করলে এটি ডিভিশন ট্র্যাক করে ম্যাপে পাঠাবে!
     // ==========================================================
+    @PostMapping("/scan/sms")
+    public ResponseEntity<Map<String, Object>> scanSmsOnline(@RequestBody Map<String, String> payload) {
+        String messageBody = payload.getOrDefault("message", "");
+        // অ্যাপ থেকে আসা ইউজারের লোকেশন (ডিফল্ট ঢাকা)
+        String region = payload.getOrDefault("region", "Dhaka");
+
+        // AI স্ক্যান
+        String aiResult = spamDetector.checkForScam(messageBody);
+        boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
+
+        if (isSpam) {
+            // 🚀 ম্যাপের জন্য WebSocket ব্রডকাস্ট (Telemetry)
+            Map<String, Object> mapAlert = new HashMap<>();
+            mapAlert.put("isSpam", true);
+            mapAlert.put("region", region);
+            mapAlert.put("type", "Phishing SMS Detected");
+
+            // ৫. ম্যাপে রিয়েল-টাইম রেড অ্যালার্ট পাঠিয়ে দেওয়া! (No Red Error)
+            notificationService.sendMapTelemetryAlert(region, true, "Phishing SMS Detected");
+
+            // সার্ভার লগে ইভেন্ট সেভ করা
+            logRepository.save(new SystemLog(
+                    "TELEMETRY_ALERT",
+                    "SYSTEM_AUTO",
+                    "Spam blocked in " + region + " region."
+            ));
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("isSpam", isSpam);
+        response.put("threatLevel", aiResult);
+        response.put("message", "Message scanned successfully");
+
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
     }
 
-    // ==========================================================
-    // ৩. গ্রাফের জন্য স্ট্যাটিস্টিকস ডাটা (Date-wise count)
-    // ==========================================================
     @GetMapping("/reports/stats")
     public List<Map<String, Object>> getReportStats() {
         return reportRepository.findAll().stream()
@@ -122,39 +145,27 @@ public class ReportController {
                 .collect(Collectors.toList());
     }
 
-    // ==========================================================
-    // ৪. ইউজারের নিজস্ব রিপোর্ট দেখা
-    // ==========================================================
     @GetMapping("/reports/user")
     public List<Report> getUserReports(@RequestParam String username) {
         return reportRepository.findBySender(username);
     }
 
-    // ==========================================================
-    // ৫. রিপোর্টের স্ট্যাটাস বা AI রেজাল্ট আপডেট করা
-    // ==========================================================
     @PutMapping("/report/{id}")
     public ResponseEntity<Report> updateReportStatus(
             @PathVariable Long id,
             @RequestParam String status
     ) {
         return reportRepository.findById(id).map(report -> {
-
             report.setAiResult(status);
-
-            // আপডেট করার ইভেন্ট লগে রেকর্ড করা
             logRepository.save(new SystemLog(
                     "REPORT_UPDATE",
                     "EXPERT",
                     "Report ID #" + id + " status changed to: " + status
             ));
-
             return ResponseEntity.ok(reportRepository.save(report));
-
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // 🔥 ৬. (NEW) ড্যাশবোর্ডের জন্য রিয়েল-টাইম স্ট্যাটিস্টিকস
     @GetMapping("/reports/dashboard-stats")
     public ResponseEntity<Map<String, Integer>> getDashboardStats() {
         List<Report> allReports = reportRepository.findAll();
@@ -167,12 +178,9 @@ public class ReportController {
             String aiResult = r.getAiResult();
             if (aiResult != null) {
                 String aiUpper = aiResult.toUpperCase();
-                // বিপদজনক কি-ওয়ার্ড চেক
                 if (aiUpper.contains("DANGER") || aiUpper.contains("SPAM") || aiUpper.contains("SCAM")) {
                     blockedScams++;
-                }
-                // নিরাপদ কি-ওয়ার্ড চেক
-                else if (aiUpper.contains("SAFE") || aiUpper.contains("VERIFIED") || aiUpper.contains("CLEAN")) {
+                } else if (aiUpper.contains("SAFE") || aiUpper.contains("VERIFIED") || aiUpper.contains("CLEAN")) {
                     safeLinks++;
                 }
             }
