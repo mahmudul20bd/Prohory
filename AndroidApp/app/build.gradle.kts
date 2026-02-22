@@ -63,6 +63,7 @@ android {
 }
 
 dependencies {
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     implementation("com.github.NaikSoftware:StompProtocolAndroid:1.6.6")
     implementation("com.google.code.gson:gson:2.10.1")
