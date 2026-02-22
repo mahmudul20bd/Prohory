@@ -29,17 +29,18 @@ public class NotificationService {
     }
 
     // 🔥 NEW: Map Telemetry এর জন্য নতুন মেথড (Error Fixed)
-    public void sendMapTelemetryAlert(String region, boolean isSpam, String type) {
+    // 🔥 NotificationService.java এর ভেতরের Map Telemetry মেথডটি আপডেট করুন
+    public void sendMapTelemetryAlert(String region, boolean isSpam, String type, double confidence, int heatPoints) {
 
         Map<String, Object> mapAlert = new HashMap<>();
         mapAlert.put("isSpam", isSpam);
         mapAlert.put("region", region);
         mapAlert.put("type", type);
+        mapAlert.put("confidence", confidence); // 0.95 or 0.60
+        mapAlert.put("heatPoints", heatPoints); // +1, +3, or +5
         mapAlert.put("timestamp", java.time.LocalDateTime.now().toString());
 
-        // 🔥 ঠিক এখানে (Object) কাস্ট করতে হবে, যা আগের কোডে মিসিং ছিল
         messagingTemplate.convertAndSend("/topic/alerts", (Object) mapAlert);
-
-        System.out.println("📍 Map Telemetry Sent for Region: " + region);
+        System.out.println("📍 Map Telemetry: " + region + " | Confidence: " + confidence + " | Points: +" + heatPoints);
     }
 }

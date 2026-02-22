@@ -9,8 +9,11 @@ import com.cyberaware.backend.service.EmailService;
 import com.cyberaware.backend.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
+
+import jakarta.servlet.http.HttpServletRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -35,82 +38,97 @@ public class ReportController {
     @Autowired
     private NotificationService notificationService;
 
-    // 🔥 ম্যাপে রিয়েল-টাইম ডেটা পাঠানোর জন্য এটি যোগ করা হলো
-    @Autowired
-    private SimpMessagingTemplate messagingTemplate;
-
-
     // ==========================================================
-    // ১. নতুন রিপোর্ট তৈরি (AI স্ক্যান + ইমেল অ্যালার্ট + লগ + WS)
+    // ১. ম্যানুয়াল রিপোর্ট / OCR (AI স্ক্যান + ইমেল + লগ + WS)
     // ==========================================================
     @PostMapping("/report")
-    public Report createReport(@RequestBody Report report) {
+    public Report createReport(@RequestBody Report report, HttpServletRequest request) {
 
         report.setTimestamp(LocalDateTime.now());
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
-
         Report savedReport = reportRepository.save(report);
 
-        if ("DANGER".equalsIgnoreCase(aiResult)
-                || "SPAM".equalsIgnoreCase(aiResult)
-                || "SCAM".equalsIgnoreCase(aiResult)) {
+        // 🚀 ZERO-TRUST LOCATION HANDLING
+        String finalRegion;
+        double confidenceScore;
+
+        if (savedReport.getRegion() != null && !savedReport.getRegion().isEmpty() && !savedReport.getRegion().equalsIgnoreCase("UNKNOWN")) {
+            finalRegion = savedReport.getRegion();
+            confidenceScore = 0.95;
+        } else {
+            String clientIp = getClientIp(request);
+            finalRegion = getRegionFromIp(clientIp);
+            confidenceScore = "UNKNOWN".equals(finalRegion) ? 0.0 : 0.60;
+        }
+
+        // 🚀 THREAT HEAT INDEX (+1, +3, +5)
+        int heatPoints = 0;
+        String threatType = "Safe Scan";
+
+        if ("DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult)) {
+            // NullPointerException এড়ানোর জন্য চেক
+            String msgLow = savedReport.getMessage() != null ? savedReport.getMessage().toLowerCase() : "";
+
+            if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) {
+                heatPoints = 5;
+                threatType = "Malware Payload";
+            } else if (msgLow.contains("bit.ly") || msgLow.contains("http") || msgLow.contains("lottery") || msgLow.contains("win")) {
+                heatPoints = 3;
+                threatType = "Phishing Link";
+            } else {
+                heatPoints = 1;
+                threatType = "General Spam";
+            }
 
             emailService.sendAlertEmail(savedReport.getSender(), savedReport.getMessage(), aiResult);
+            notificationService.sendGlobalAlert("CRITICAL THREAT DETECTED", "User " + savedReport.getSender() + " encountered a " + aiResult + " message.", aiResult, savedReport);
 
-            notificationService.sendGlobalAlert(
-                    "CRITICAL THREAT DETECTED",
-                    "User " + savedReport.getSender() + " encountered a " + aiResult + " message.",
-                    aiResult,
-                    savedReport
-            );
+            String logDetails = String.format("AI flagged %s. Device: %s (OS: %s). Location Confidence: %.2f", aiResult, savedReport.getDeviceModel(), savedReport.getOsVersion(), confidenceScore);
+            logRepository.save(new SystemLog("THREAT_DETECTED", savedReport.getSender(), logDetails));
 
-            logRepository.save(new SystemLog(
-                    "THREAT_DETECTED",
-                    savedReport.getSender(),
-                    "AI flagged a message as " + aiResult + ": " + savedReport.getMessage()
-            ));
+            notificationService.sendMapTelemetryAlert(finalRegion, true, threatType, confidenceScore, heatPoints);
         } else {
-            notificationService.sendGlobalAlert(
-                    "NEW SAFE REPORT",
-                    "User " + savedReport.getSender() + " submitted a SAFE message.",
-                    aiResult,
-                    savedReport
-            );
+            notificationService.sendGlobalAlert("NEW SAFE REPORT", "User " + savedReport.getSender() + " submitted a SAFE message.", aiResult, savedReport);
+            notificationService.sendMapTelemetryAlert(finalRegion, false, "Safe Scan", confidenceScore, 0);
         }
+
         return savedReport;
     }
 
     // ==========================================================
-    // 🔥 ২. (NEW) App Telemetry & Spam Scanner Endpoint
-    // অ্যাপ থেকে SMS স্ক্যান করলে এটি ডিভিশন ট্র্যাক করে ম্যাপে পাঠাবে!
+    // ২. অটোমেটিক ব্যাকগ্রাউন্ড SMS স্ক্যানার (App Telemetry)
     // ==========================================================
     @PostMapping("/scan/sms")
-    public ResponseEntity<Map<String, Object>> scanSmsOnline(@RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, Object>> scanSmsOnline(@RequestBody Map<String, String> payload, HttpServletRequest request) {
         String messageBody = payload.getOrDefault("message", "");
-        // অ্যাপ থেকে আসা ইউজারের লোকেশন (ডিফল্ট ঢাকা)
-        String region = payload.getOrDefault("region", "Dhaka");
+        String region = payload.getOrDefault("region", "UNKNOWN");
 
-        // AI স্ক্যান
+        // 🚀 এখানেও Zero-Trust Location (No Dhaka Hardcoded)
+        String finalRegion;
+        double confidenceScore;
+
+        if (!region.isEmpty() && !region.equalsIgnoreCase("UNKNOWN")) {
+            finalRegion = region;
+            confidenceScore = 0.95;
+        } else {
+            String clientIp = getClientIp(request);
+            finalRegion = getRegionFromIp(clientIp);
+            confidenceScore = "UNKNOWN".equals(finalRegion) ? 0.0 : 0.60;
+        }
+
         String aiResult = spamDetector.checkForScam(messageBody);
         boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
 
         if (isSpam) {
-            // 🚀 ম্যাপের জন্য WebSocket ব্রডকাস্ট (Telemetry)
-            Map<String, Object> mapAlert = new HashMap<>();
-            mapAlert.put("isSpam", true);
-            mapAlert.put("region", region);
-            mapAlert.put("type", "Phishing SMS Detected");
+            int heatPoints = 3;
+            String msgLow = messageBody.toLowerCase();
+            if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) heatPoints = 5;
+            else if (!msgLow.contains("bit.ly") && !msgLow.contains("http") && !msgLow.contains("lottery")) heatPoints = 1;
 
-            // ৫. ম্যাপে রিয়েল-টাইম রেড অ্যালার্ট পাঠিয়ে দেওয়া! (No Red Error)
-            notificationService.sendMapTelemetryAlert(region, true, "Phishing SMS Detected");
+            notificationService.sendMapTelemetryAlert(finalRegion, true, "Phishing SMS Detected", confidenceScore, heatPoints);
 
-            // সার্ভার লগে ইভেন্ট সেভ করা
-            logRepository.save(new SystemLog(
-                    "TELEMETRY_ALERT",
-                    "SYSTEM_AUTO",
-                    "Spam blocked in " + region + " region."
-            ));
+            logRepository.save(new SystemLog("TELEMETRY_ALERT", "SYSTEM_AUTO", "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -121,6 +139,35 @@ public class ReportController {
         return ResponseEntity.ok(response);
     }
 
+    // --- Helper Methods ---
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip.split(",")[0];
+    }
+
+    private String getRegionFromIp(String ip) {
+        try {
+            if ("127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip)) return "UNKNOWN";
+
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            String response = restTemplate.getForObject("http://ip-api.com/json/" + ip, String.class);
+
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode json = mapper.readTree(response);
+
+            if ("success".equals(json.path("status").asText())) {
+                return json.path("regionName").asText().replace(" Division", "").trim();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return "UNKNOWN";
+    }
+
+    // --- অন্যান্য Get/Put এন্ডপয়েন্ট (অপরিবর্তিত) ---
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
@@ -151,17 +198,10 @@ public class ReportController {
     }
 
     @PutMapping("/report/{id}")
-    public ResponseEntity<Report> updateReportStatus(
-            @PathVariable Long id,
-            @RequestParam String status
-    ) {
+    public ResponseEntity<Report> updateReportStatus(@PathVariable Long id, @RequestParam String status) {
         return reportRepository.findById(id).map(report -> {
             report.setAiResult(status);
-            logRepository.save(new SystemLog(
-                    "REPORT_UPDATE",
-                    "EXPERT",
-                    "Report ID #" + id + " status changed to: " + status
-            ));
+            logRepository.save(new SystemLog("REPORT_UPDATE", "EXPERT", "Report ID #" + id + " status changed to: " + status));
             return ResponseEntity.ok(reportRepository.save(report));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -169,7 +209,6 @@ public class ReportController {
     @GetMapping("/reports/dashboard-stats")
     public ResponseEntity<Map<String, Integer>> getDashboardStats() {
         List<Report> allReports = reportRepository.findAll();
-
         int totalScans = allReports.size();
         int blockedScams = 0;
         int safeLinks = 0;

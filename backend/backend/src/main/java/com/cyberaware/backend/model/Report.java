@@ -15,6 +15,12 @@ public class Report {
     private String sender;   // যে ইউজার পাঠিয়েছে
     private String reporter; // রিপোর্টার নাম (অপশনাল)
 
+    // 🔥 Telemetry & Device Fingerprint Fields
+    private String region;
+    private String deviceId;     // Anonymous UUID
+    private String deviceModel;  // e.g., Samsung S24
+    private String osVersion;    // e.g., Android 14
+
     // 🔥 মিসিং ফিল্ডগুলো অ্যাড করা হয়েছে
     private String aiResult;
     private LocalDateTime timestamp;
@@ -30,6 +36,19 @@ public class Report {
     }
 
     // --- Getters and Setters ---
+
+    // 🔥 নতুন ফিল্ডগুলোর Getter/Setter
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+
+    public String getDeviceId() { return deviceId; }
+    public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
+
+    public String getDeviceModel() { return deviceModel; }
+    public void setDeviceModel(String deviceModel) { this.deviceModel = deviceModel; }
+
+    public String getOsVersion() { return osVersion; }
+    public void setOsVersion(String osVersion) { this.osVersion = osVersion; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
