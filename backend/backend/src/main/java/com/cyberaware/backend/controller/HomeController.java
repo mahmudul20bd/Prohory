@@ -10,4 +10,9 @@ public class HomeController {
     public String home() {
         return "CyberAware Backend Running";
     }
+
+    @GetMapping("/health")
+    public String health() {
+        return "OK";
+    }
 }
