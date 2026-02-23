@@ -20,7 +20,7 @@ public class JwtUtil {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) // ১০ ঘণ্টা মেয়াদ
+                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24)) // 24 ঘণ্টা মেয়াদ
                 .signWith(getSignKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
