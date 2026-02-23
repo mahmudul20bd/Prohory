@@ -33,6 +33,8 @@ public class SecurityConfig {
                      .requestMatchers("/").permitAll()   // 🔥 এটা add
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        // 🔥 FIX: Background SMS Scanner ekhon theke token charai Cloud use korte parbe!
+                        .requestMatchers("/api/scan/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 )

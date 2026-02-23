@@ -11,6 +11,8 @@ public class Report {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // 🚀 FIX: বিশাল OCR টেক্সট সেভ করার জন্য Column সাইজ বাড়ানো হলো
+    @Column(columnDefinition = "TEXT")
     private String message;
     private String sender;   // যে ইউজার পাঠিয়েছে
     private String reporter; // রিপোর্টার নাম (অপশনাল)
