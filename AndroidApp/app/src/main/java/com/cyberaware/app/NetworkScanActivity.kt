@@ -1,5 +1,7 @@
 package com.cyberaware.app
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -22,6 +25,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,21 +55,37 @@ class NetworkScanActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkScannerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // 🔥 UX FIX: Auto-Scroll State for Terminal
+    val listState = rememberLazyListState()
     val terminalLogs = remember { mutableStateListOf<String>() }
+
     var isScanning by remember { mutableStateOf(false) }
     var scanComplete by remember { mutableStateOf(false) }
     var securityScore by remember { mutableIntStateOf(100) }
 
-    // Fetch Real IP
     val deviceIp = remember { getLocalIpAddress() }
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))
-    ) {
+    // 🔥 Blinking Cursor Animation for Terminal Execution Effect
+    val infiniteTransition = rememberInfiniteTransition()
+    val cursorAlpha by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse)
+    )
+
+    // Auto-Scroll Trigger
+    LaunchedEffect(terminalLogs.size) {
+        if (terminalLogs.isNotEmpty()) {
+            listState.animateScrollToItem(terminalLogs.size - 1)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Custom Top Bar
+            // Header
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
                 Spacer(modifier = Modifier.width(8.dp))
@@ -84,12 +104,20 @@ fun NetworkScannerScreen(onBack: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = "$securityScore%",
-                            color = if (securityScore >= 90) Color.Green else if (securityScore >= 70) Color.Yellow else Color.Red,
-                            fontSize = 48.sp,
+                            color = when {
+                                securityScore >= 80 -> Color.Green
+                                securityScore >= 50 -> Color(0xFFFF9800) // Orange
+                                else -> Color.Red
+                            },
+                            fontSize = 54.sp,
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            text = if (securityScore >= 90) "NETWORK SECURE" else if (securityScore >= 70) "STEALTH WARNING" else "VULNERABILITIES FOUND",
+                            text = when {
+                                securityScore >= 80 -> "NETWORK SECURE"
+                                securityScore >= 50 -> "VULNERABILITIES DETECTED"
+                                else -> "CRITICAL RISK LEVEL"
+                            },
                             color = NeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp
                         )
                     }
@@ -101,9 +129,8 @@ fun NetworkScannerScreen(onBack: () -> Unit) {
                             securityScore = 100
                             terminalLogs.clear()
 
-                            // 🔥 Start Real Network Scan
                             coroutineScope.launch {
-                                val finalScore = runRealNetworkScan(terminalLogs, deviceIp)
+                                val finalScore = runRealNetworkScan(context, terminalLogs, deviceIp)
                                 securityScore = finalScore
                                 isScanning = false
                                 scanComplete = true
@@ -113,14 +140,14 @@ fun NetworkScannerScreen(onBack: () -> Unit) {
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.border(1.dp, NeonCyan, RoundedCornerShape(12.dp)).background(NeonCyan.copy(alpha = 0.1f))
                     ) {
-                        Text("INITIATE REAL SCAN", color = NeonCyan, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.padding(8.dp))
+                        Text("INITIATE DEEP SCAN", color = NeonCyan, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.padding(8.dp))
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Live Terminal Console
+            // 🔥 Auto-Scrolling Terminal Console
             Surface(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(20.dp).border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(16.dp)),
                 color = Color(0xFF0B1221),
@@ -130,15 +157,22 @@ fun NetworkScannerScreen(onBack: () -> Unit) {
                     Text("SYSTEM LOGS // REAL-TIME ANALYSIS", color = Color.Gray, fontSize = 10.sp, letterSpacing = 1.sp)
                     Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
 
-                    LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = false) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(terminalLogs) { log ->
                             val textColor = when {
-                                log.contains("[DANGER]") || log.contains("ERROR") -> Color.Red
+                                log.contains("[DANGER]") || log.contains("Risk:") -> Color.Red
                                 log.contains("[WARNING]") || log.contains("[!]") -> Color.Yellow
                                 log.contains("[✔]") || log.contains("[SECURE]") -> Color.Green
                                 else -> NeonCyan
                             }
-                            Text(text = log, color = textColor, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+                            Text(text = log, color = textColor, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp), lineHeight = 16.sp)
+                        }
+
+                        // Active Execution Cursor
+                        if (isScanning) {
+                            item {
+                                Text(text = "▌", color = NeonCyan.copy(alpha = cursorAlpha), fontFamily = FontFamily.Monospace, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp))
+                            }
                         }
                     }
                 }
@@ -147,7 +181,7 @@ fun NetworkScannerScreen(onBack: () -> Unit) {
     }
 }
 
-// 🟢 Real IP Fetching Logic
+// 🟢 Device IP Fetcher
 fun getLocalIpAddress(): String {
     try {
         val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
@@ -161,31 +195,48 @@ fun getLocalIpAddress(): String {
                 }
             }
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+    } catch (e: Exception) { e.printStackTrace() }
     return "127.0.0.1"
 }
 
-// 🔥 ACTUAL REAL WORLD NETWORK SCAN LOGIC (UPGRADED)
-suspend fun runRealNetworkScan(logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, ip: String): Int {
+// 🔥 Real Gateway Detection using WifiManager
+fun getRealGatewayIp(context: Context): String? {
+    try {
+        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val dhcp = wifiManager.dhcpInfo
+        if (dhcp != null && dhcp.gateway != 0) {
+            val ip = dhcp.gateway
+            return "${ip and 0xff}.${ip shr 8 and 0xff}.${ip shr 16 and 0xff}.${ip shr 24 and 0xff}"
+        }
+    } catch (e: Exception) { e.printStackTrace() }
+    return null
+}
+
+// 🔥 UPGRADED ENTERPRISE NETWORK SCAN LOGIC
+suspend fun runRealNetworkScan(context: Context, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, ip: String): Int {
     var score = 100
     var openPortsCount = 0
     var isPingFailed = false
 
     logs.add("> Initializing Prohory Real-Time Protocol...")
-    delay(500)
+    delay(600)
     logs.add("> Target Device IP: $ip")
-    delay(500)
+    delay(400)
 
-    val parts = ip.split(".")
-    val gatewayIp = if (parts.size == 4) "${parts[0]}.${parts[1]}.${parts[2]}.1" else "8.8.8.8"
-
-    logs.add("> Resolving Default Gateway/Router: [$gatewayIp]...")
+    // 1. Detect Real Gateway
+    logs.add("> Extracting Router/Gateway configuration...")
     delay(800)
+    val realGateway = getRealGatewayIp(context)
+    val gatewayIp = if (realGateway != null && realGateway != "0.0.0.0") realGateway else {
+        val parts = ip.split(".")
+        if (parts.size == 4) "${parts[0]}.${parts[1]}.${parts[2]}.1" else "8.8.8.8"
+    }
+
+    logs.add("[✔] Gateway IP Resolved: [$gatewayIp]")
+    delay(600)
 
     withContext(Dispatchers.IO) {
-        // 1. Real Ping Test
+        // 2. Real Ping Test
         try {
             val inet = InetAddress.getByName(gatewayIp)
             val startTime = System.currentTimeMillis()
@@ -196,7 +247,7 @@ suspend fun runRealNetworkScan(logs: androidx.compose.runtime.snapshots.Snapshot
                 if (reachable) {
                     logs.add("[✔] Gateway Reachable. Latency: ${latency}ms")
                 } else {
-                    logs.add("[!] Gateway Ping Failed. Firewall might be active.")
+                    logs.add("[!] Gateway Ping Failed. Stealth Mode/Firewall Active.")
                     isPingFailed = true
                     score -= 5
                 }
@@ -210,13 +261,19 @@ suspend fun runRealNetworkScan(logs: androidx.compose.runtime.snapshots.Snapshot
         }
 
         delay(800)
-        withContext(Dispatchers.Main) { logs.add("> Initiating Deep Port Scan on Network...") }
+        withContext(Dispatchers.Main) { logs.add("> Initiating Vulnerability Port Scan...") }
+        delay(600)
 
-        // 2. Real Port Scanning
-        val portsToCheck = listOf(21, 22, 23, 80)
+        // 3. Weighted Risk Engine & Human Readable Ports
+        val portsToCheck = listOf(
+            Triple(21, "FTP (File Transfer)", 25),
+            Triple(22, "SSH (Secure Shell)", 15),
+            Triple(23, "Telnet (Remote Control)", 40),
+            Triple(80, "HTTP (Web Admin)", 15)
+        )
 
-        for (port in portsToCheck) {
-            withContext(Dispatchers.Main) { logs.add("> Probing Port $port...") }
+        for ((port, desc, penalty) in portsToCheck) {
+            withContext(Dispatchers.Main) { logs.add("> Probing Port $port [$desc]...") }
             try {
                 val socket = Socket()
                 socket.connect(InetSocketAddress(gatewayIp, port), 800)
@@ -224,44 +281,64 @@ suspend fun runRealNetworkScan(logs: androidx.compose.runtime.snapshots.Snapshot
 
                 withContext(Dispatchers.Main) {
                     logs.add("[DANGER] Port $port is OPEN and exposed!")
+
+                    // Human readable risks
+                    val riskText = when(port) {
+                        21 -> "Risk: Hackers can access or modify your files without encryption."
+                        22 -> "Risk: Exposed to brute-force login attacks."
+                        23 -> "Risk: CRITICAL! Hackers can take full remote control of the router."
+                        80 -> "Risk: Router admin panel is exposed to the network."
+                        else -> "Risk: Unauthorized access point."
+                    }
+                    logs.add(riskText)
+
                     openPortsCount++
-                    score -= 20
+                    score -= penalty // Apply Weighted Penalty
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    logs.add("[✔] Port $port is closed and SECURE.")
+                    logs.add("[✔] Port $port is closed securely.")
                 }
             }
-            delay(400)
+            delay(500) // Simulated processing time for animation
         }
     }
 
-    delay(500)
+    delay(800)
+    withContext(Dispatchers.Main) { logs.add("> Finalizing Cyber Report...") }
+    delay(600)
 
-    // 🔥 Smart Conclusion Logic
+    // Smart Conclusion
+// Smart Conclusion
     if (openPortsCount == 0 && !isPingFailed) {
-        logs.add("> [SECURE] NETWORK IS 100% SAFE.")
+        logs.add("> [SECURE] NETWORK IS 100% SAFE. You can perform bank transactions safely.")
     } else if (openPortsCount == 0 && isPingFailed) {
-        logs.add("> [WARNING] ROUTER STEALTH MODE ACTIVE. NO THREATS FOUND.")
+        logs.add("> [SECURE] ROUTER STEALTH MODE ACTIVE. NO THREATS FOUND.")
     } else {
-        logs.add("> [DANGER] VULNERABILITIES DETECTED! USE VPN IMMEDIATELY.")
+        logs.add("> [DANGER] VULNERABILITIES DETECTED! DO NOT USE THIS WIFI FOR BANKING.")
+
+        // 🔥 UNIFIED ARCHIVE FIX: Push to Central Archive
+        withContext(Dispatchers.Main) {
+            val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
+            val currentList = threatPrefs.getStringSet("quarantine_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+            currentList.add("Network Defense|||CRITICAL: $openPortsCount vulnerable port(s) detected on network gateway [$gatewayIp].")
+            threatPrefs.edit().putStringSet("quarantine_list", currentList).apply()
+        }
     }
 
     return score.coerceAtLeast(0)
 }
-
 // 🟢 Pro-Level Radar Animation
 @Composable
 fun CyberRadarAnimation(isScanning: Boolean) {
-    val infiniteTransition = rememberInfiniteTransition(label = "radar")
+    val infiniteTransition = rememberInfiniteTransition()
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(animation = tween(2000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "rotation"
+        animationSpec = infiniteRepeatable(animation = tween(2000, easing = LinearEasing), repeatMode = RepeatMode.Restart)
     )
-
     val pulse by infiniteTransition.animateFloat(
         initialValue = 0.5f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "pulse"
+        animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse)
     )
 
     Canvas(modifier = Modifier.size(200.dp)) {

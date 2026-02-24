@@ -9,14 +9,22 @@ import com.cyberaware.app.network.RetrofitClient
 import com.cyberaware.app.network.SystemLog
 import com.cyberaware.app.network.UserProfile
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import ua.naiksoftware.stomp.Stomp
 import ua.naiksoftware.stomp.StompClient
+import ua.naiksoftware.stomp.dto.StompHeader // 🔥 NEW IMPORT
 import kotlin.random.Random
 
 class DashboardViewModel : ViewModel() {
+
+    // 🔥 THE MAGIC FIX: replay = 1 ensures the logout signal is NEVER missed by the UI
+    private val _sessionExpired = MutableSharedFlow<Boolean>(replay = 1)
+    val sessionExpired: SharedFlow<Boolean> = _sessionExpired.asSharedFlow()
 
     private val _userProfile = MutableStateFlow<UserProfile?>(null)
     val userProfile: StateFlow<UserProfile?> = _userProfile
@@ -24,7 +32,6 @@ class DashboardViewModel : ViewModel() {
     private val _dashboardStats = MutableStateFlow<DashboardStats?>(null)
     val dashboardStats: StateFlow<DashboardStats?> = _dashboardStats
 
-    // Baseline is 0.1f (Safe). It will only spike when real data comes from DB or Server.
     private val _liveThreatLevel = MutableStateFlow(0.1f)
     val liveThreatLevel: StateFlow<Float> = _liveThreatLevel
 
@@ -34,29 +41,42 @@ class DashboardViewModel : ViewModel() {
     private var stompClient: StompClient? = null
 
     init {
-        startCoolDownEngine() // Starts the reality-engine to normalize graph after a real threat
+        startCoolDownEngine()
     }
 
     fun loadDashboardData(token: String, username: String, role: String) {
         viewModelScope.launch {
             try {
+                // ১. Profile Check
                 val profileResponse = RetrofitClient.apiService.getUserProfile("Bearer $token")
+                if (profileResponse.code() == 401) {
+                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
+                    return@launch
+                }
                 if (profileResponse.isSuccessful) _userProfile.value = profileResponse.body()
 
+                // ২. Stats Check
                 val statsResponse = RetrofitClient.apiService.getDashboardStats("Bearer $token")
+                if (statsResponse.code() == 401) {
+                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
+                    return@launch
+                }
                 if (statsResponse.isSuccessful) {
                     val stats = statsResponse.body()
                     _dashboardStats.value = stats
 
-                    // 🔥 DATABASE DRIVEN LOGIC:
-                    // যদি ডেটাবেসে অনেকগুলো ব্লক করা স্ক্যাম থাকে, তবে প্রাথমিক থ্রেট লেভেল একটু হাই থাকবে
                     val recentThreats = stats?.blockedScams ?: 0
                     if (recentThreats > 5) {
-                        _liveThreatLevel.value = 0.6f // High alert based on database history
+                        _liveThreatLevel.value = 0.6f
                     }
                 }
 
+                // ৩. Logs Check
                 val logsResponse = RetrofitClient.apiService.getNeuralLogs("Bearer $token")
+                if (logsResponse.code() == 401) {
+                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
+                    return@launch
+                }
                 if (logsResponse.isSuccessful && logsResponse.body() != null) {
                     val allLogs = logsResponse.body()!!
                     val filteredLogs = if (role.uppercase() == "ADMIN" || role.uppercase() == "ROOT") {
@@ -72,46 +92,43 @@ class DashboardViewModel : ViewModel() {
         }
     }
 
-    // 🔥 REAL-TIME SERVER DRIVEN LOGIC
     @SuppressLint("CheckResult")
-    fun connectWebSocket() {
-        // আপনার Render ব্যাকএন্ডের WebSocket URL (wss://)
+    fun connectWebSocket(token: String) { // 🔥 FIX: Receive token to authenticate WebSocket
         val wsUrl = "wss://cyber-aware.onrender.com/ws/websocket"
 
         stompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl)
-        stompClient?.connect()
+
+        // Send Token in WebSocket Connection Header to stop backend rejection spam
+        val authHeader = if (token.startsWith("Bearer ")) token else "Bearer $token"
+        val headers = listOf(StompHeader("Authorization", authHeader))
+
+        stompClient?.connect(headers)
 
         stompClient?.topic("/topic/alerts")?.subscribe({ topicMessage ->
             val payload = topicMessage.payload.uppercase()
             Log.d("WebSocket", "Real Threat Received: $payload")
 
-            // ডেটাবেস/সার্ভার থেকে রিয়েল থ্রেট আসলে গ্রাফ স্পাইক করবে
             if (payload.contains("DANGER") || payload.contains("SCAM") || payload.contains("CRITICAL")) {
-                _liveThreatLevel.value = 0.95f // Massive Red Spike
+                _liveThreatLevel.value = 0.95f
             } else if (payload.contains("WARNING")) {
-                _liveThreatLevel.value = 0.6f  // Yellow Warning Spike
+                _liveThreatLevel.value = 0.6f
             } else {
-                _liveThreatLevel.value = 0.3f  // Minor event
+                _liveThreatLevel.value = 0.3f
             }
         }, { error ->
             Log.e("WebSocket", "Connection Error: ", error)
         })
     }
 
-    // 🔥 REALITY COOL-DOWN ENGINE
-    // সার্ভার থেকে স্পাইক আসার পর এটি আস্তে আস্তে গ্রাফটিকে নরমাল লেভেলে নিয়ে আসবে।
-    // ফলে কোনো ফেক স্পাইক হবে না।
     private fun startCoolDownEngine() {
         viewModelScope.launch {
             while (true) {
-                delay(1000) // Update every second
+                delay(1000)
                 val current = _liveThreatLevel.value
 
                 if (current > 0.15f) {
-                    // Gradually decrease the threat level (Cooldown)
                     _liveThreatLevel.value = current - 0.08f
                 } else {
-                    // Normal Baseline (Tiny random noise just to show the server is 'alive' and pinging)
                     _liveThreatLevel.value = 0.08f + (Random.nextFloat() * 0.04f)
                 }
             }

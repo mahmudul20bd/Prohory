@@ -2,7 +2,9 @@ package com.cyberaware.app
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -15,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,8 +38,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -78,113 +86,148 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
     var payloadInput by remember { mutableStateOf("") }
     val scanLogs = remember { mutableStateListOf<String>() }
 
-    // States: 0 = Idle, 1 = Scanning, 2 = Safe, 3 = Danger
     var scanState by remember { mutableIntStateOf(0) }
-
-    // Offline Model Download State
-    var downloadStatus by remember { mutableStateOf("Checking Offline AI Core...") }
+    var downloadStatus by remember { mutableStateOf("Checking Offline Files...") }
     var isModelReady by remember { mutableStateOf(false) }
 
-    // 🔥 LaunchedEffect: অ্যাপ ওপেন হলেই লোকাল স্টোরেজ চেক করবে এবং মডেল না থাকলে ডাউনলোড করবে
+    // 🔥 FIX: Real-time Internet Status State
+    var isNetOn by remember { mutableStateOf(isInternetAvailable(context)) }
+
+    // 🔥 FIX: Listen to Internet Status instantly
+    DisposableEffect(context) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                isNetOn = true
+            }
+            override fun onLost(network: Network) {
+                isNetOn = false
+            }
+        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+
+        onDispose {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        }
+    }
+
+    val listState = rememberLazyListState()
+    LaunchedEffect(scanLogs.size) {
+        if (scanLogs.isNotEmpty()) {
+            listState.animateScrollToItem(scanLogs.size - 1)
+        }
+    }
+
     LaunchedEffect(Unit) {
         val modelFile = File(context.filesDir, "cyberaware_model.tflite")
         val vocabFile = File(context.filesDir, "vocab.txt")
 
-        if (modelFile.exists() && vocabFile.exists()) {
-            downloadStatus = "Offline AI Core Synchronized & Ready."
+        val isModelValid = modelFile.exists() && modelFile.length() > 0L
+        val isVocabValid = vocabFile.exists() && vocabFile.length() > 0L
+
+        if (isModelValid && isVocabValid) {
+            downloadStatus = "Offline Scanner is Ready."
             isModelReady = true
         } else {
-            if (isInternetAvailable(context)) {
-                downloadStatus = "Downloading Lightweight Offline Core..."
-                // ডাউনলোড শুরু
+            if (modelFile.exists()) modelFile.delete()
+            if (vocabFile.exists()) vocabFile.delete()
+
+            if (isNetOn) {
+                downloadStatus = "Downloading Offline Files..."
                 val success = downloadOfflineResources(context)
                 if (success) {
-                    downloadStatus = "Offline AI Core Synchronized & Ready."
+                    downloadStatus = "Offline Scanner is Ready."
                     isModelReady = true
                 } else {
-                    downloadStatus = "Failed to sync offline core. Server error."
+                    downloadStatus = "Download failed. Server error."
                 }
             } else {
-                downloadStatus = "Offline Core Missing! Connect to internet once."
+                downloadStatus = "Files missing! Connect to internet."
             }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
-        ScannerGridBackground()
+        CleanCyberBackground()
 
-        Column(modifier = Modifier.fillMaxSize()) {
-
-            // Header
-            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // ১. Header
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Icon(Icons.Default.ScreenSearchDesktop, contentDescription = "Scanner", tint = NeonPurple)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("PHISHING INTELLIGENCE", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Text("SCAN MESSAGE", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             }
 
-            // 🔥 Offline AI Core Status Indicator
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if(isModelReady) Icons.Default.CloudDone else Icons.Default.CloudDownload, contentDescription = null, tint = if(isModelReady) Color.Green else Color.Yellow, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(downloadStatus, color = if(isModelReady) Color.Green else Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            // ২. Status Indicators
+            Column(modifier = Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if(isModelReady) Icons.Default.CloudDone else Icons.Default.CloudDownload, contentDescription = null, tint = if(isModelReady) Color.Green else Color.Yellow, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(downloadStatus, color = if(isModelReady) Color.Green else Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // 🔥 It will update instantly now!
+                val engineColor = if (isNetOn) NeonCyan else Color(0xFFFF9800)
+                val engineText = if (isNetOn) "USING ONLINE SCANNER (CLOUD)" else "USING OFFLINE SCANNER (LOCAL)"
+
+                Surface(
+                    color = engineColor.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, engineColor.copy(alpha = 0.5f))
+                ) {
+                    Text(text = engineText, color = engineColor, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Text/URL Input Area
+            // ৩. Input Area
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                color = Color(0xFF131C2B),
+                color = Color(0xFF131C2B).copy(alpha = 0.8f),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color.White.copy(0.1f))
+                border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.3f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("TARGET PAYLOAD (URL OR SMS)", color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = payloadInput,
                         onValueChange = { payloadInput = it },
-                        placeholder = { Text("Paste suspicious text or link...", color = Color.Gray) },
-                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = Color.White) },
-                        trailingIcon = {
-                            IconButton(onClick = { payloadInput = "" }) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = "Clear", tint = Color.Gray)
-                            }
-                        },
+                        placeholder = { Text("Paste suspicious text or link...", color = Color.Gray, fontSize = 12.sp) },
+                        trailingIcon = { IconButton(onClick = { payloadInput = "" }) { Icon(Icons.Default.ContentPaste, contentDescription = "Clear", tint = Color.Gray) } },
                         singleLine = false,
-                        maxLines = 4,
+                        maxLines = 3,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                            cursorColor = NeonCyan, focusedBorderColor = NeonCyan,
-                            unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF1E293B)
-                        ),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = NeonCyan, focusedBorderColor = NeonCyan, unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF1E293B).copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
-
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
                         onClick = {
                             if (payloadInput.trim().isEmpty()) {
-                                Toast.makeText(context, "Payload empty! Paste text or URL.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Please paste some text first!", Toast.LENGTH_SHORT).show()
                             } else {
                                 scanState = 1
                                 scanLogs.clear()
                                 coroutineScope.launch {
-                                    if (isInternetAvailable(context)) {
+                                    if (isNetOn) { // Use the real-time state here too
                                         runServerAIAnalysis(context, payloadInput, scanLogs) { scanState = it }
                                     } else {
                                         if (isModelReady) {
                                             runLocalTFLiteAnalysis(context, payloadInput, scanLogs) { scanState = it }
                                         } else {
-                                            scanLogs.add("[ERROR] Network is OFFLINE.")
-                                            scanLogs.add("[ERROR] Local AI Model is not downloaded yet!")
-                                            scanLogs.add("> Please connect to the internet once to synchronize.")
+                                            scanLogs.add("ERROR: No internet connection.")
+                                            scanLogs.add("ERROR: Offline files are missing.")
+                                            scanLogs.add("Please turn on internet to download files.")
                                             scanState = 0
                                         }
                                     }
@@ -192,45 +235,62 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                             }
                         },
                         enabled = scanState != 1,
-                        modifier = Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(12.dp)),
-                        colors = ButtonDefaults.buttonColors(containerColor = if (scanState == 1) Color.Gray else NeonPurple)
+                        modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (scanState == 1) Color.DarkGray else NeonPurple)
                     ) {
-                        Text(if (scanState == 1) "ANALYZING PAYLOAD..." else "INITIATE AI SCAN", color = Color.White, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(if (scanState == 1) "SCANNING..." else "START SCAN", color = Color.White, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
-
-            Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+            // ৪. Animation Box
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
                 when (scanState) {
-                    0 -> ScannerIdleState()
-                    1 -> ScannerActiveState()
-                    2 -> ScannerResultState(isSafe = true)
-                    3 -> ScannerResultState(isSafe = false)
+                    0 -> AdvancedIdleState()
+                    1 -> AdvancedActiveScanningState()
+                    2 -> AdvancedResultState(isSafe = true)
+                    3 -> AdvancedResultState(isSafe = false)
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
+            // ৫. Logs Box
             Surface(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(20.dp).border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(16.dp)),
-                color = Color(0xFF0B1221),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1.2f)
+                    .padding(horizontal = 20.dp)
+                    .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(16.dp)),
+                color = Color(0xFF0B1221).copy(alpha = 0.8f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("SYSTEM LOGS // NEURAL ANALYSIS", color = Color.Gray, fontSize = 10.sp, letterSpacing = 1.sp)
-                    Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("SCAN PROGRESS", color = Color.Gray, fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                    Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 6.dp))
 
-                    LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = false) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = false) {
                         items(scanLogs) { log ->
                             val textColor = when {
-                                log.contains("[DANGER]") || log.contains("MALICIOUS") || log.contains("ERROR") -> Color.Red
-                                log.contains("[WARNING]") || log.contains("OFFLINE") -> Color.Yellow
-                                log.contains("[✔]") || log.contains("SAFE") -> Color.Green
+                                log.contains("DANGEROUS") || log.contains("WARNING") || log.contains("ERROR") || log.contains("❌") -> Color.Red
+                                log.contains("No internet") -> Color.Yellow
+                                log.contains("✔") || log.contains("SAFE") -> Color.Green
                                 else -> NeonCyan
                             }
-                            Text(text = log, color = textColor, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+                            Text(text = log, color = textColor, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp), fontWeight = FontWeight.Medium)
+                        }
+
+                        if (scanState == 1) {
+                            item {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = NeonCyan, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Scanning in progress...", color = NeonCyan, fontSize = 12.sp, fontStyle = FontStyle.Italic)
+                                }
+                            }
                         }
                     }
                 }
@@ -240,61 +300,78 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
 }
 
 // ==========================================
-// 1. ONLINE CLOUD AI LOGIC (Spring Boot)
+// 1. ONLINE CLOUD AI LOGIC (FIXED: Uses Actual Backend Result)
 // ==========================================
 suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
-    logs.add("> Network Status: ONLINE")
+    logs.add("Checking internet connection...")
     delay(400)
-    logs.add("> Initializing Connection to Prohory Cloud AI...")
+    logs.add("Connecting to secure server...")
     delay(500)
-    logs.add("> Encrypting payload and transmitting...")
+    logs.add("Sending your text securely...")
 
     val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
     val token = sharedPref.getString("auth_token", "") ?: ""
     val reporterId = sharedPref.getString("username", "Agent") ?: "Agent"
 
+    val userRegion = sharedPref.getString("user_division", "") ?: ""
+    var deviceId = sharedPref.getString("anonymous_device_id", null)
+    if (deviceId == null) {
+        deviceId = java.util.UUID.randomUUID().toString()
+        sharedPref.edit().putString("anonymous_device_id", deviceId).apply()
+    }
+    val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+    val osVersion = "Android ${android.os.Build.VERSION.RELEASE}"
+
     if (token.isEmpty()) {
-        logs.add("[ERROR] Authentication Token Missing!")
+        logs.add("ERROR: You are not logged in!")
         onResult(0)
         return
     }
 
     withContext(Dispatchers.IO) {
         try {
-            val payload = mapOf("sender" to "Manual AI Scan", "message" to payloadData, "reporter" to reporterId)
+            val payload = mapOf(
+                "sender" to "Manual AI Scan",
+                "message" to payloadData,
+                "reporter" to reporterId,
+                "region" to userRegion,
+                "deviceId" to deviceId,
+                "deviceModel" to deviceModel,
+                "osVersion" to osVersion
+            )
             val response = RetrofitClient.apiService.submitSmsReport("Bearer $token", payload)
 
             withContext(Dispatchers.Main) {
                 if (response.isSuccessful) {
-                    logs.add("[✔] Payload received by Central Core.")
+                    logs.add("Message received by server. ✔")
                     delay(800)
-                    logs.add("> Heavy Model running deep semantic analysis...")
+                    logs.add("Analyzing threat level from Cloud AI...")
                     delay(1500)
 
-                    val lowerInput = payloadData.lowercase()
-                    val isSuspicious = lowerInput.contains("free") || lowerInput.contains("win") ||
-                            lowerInput.contains("অফার") || lowerInput.contains("লটারি") ||
-                            lowerInput.contains("bit.ly")
+                    val resultBody = response.body() as? Map<*, *>
+                    val aiResult = resultBody?.get("aiResult")?.toString()?.uppercase() ?: "SAFE"
+
+                    val isSuspicious = aiResult.contains("DANGER") || aiResult.contains("SPAM") || aiResult.contains("SCAM")
 
                     if(isSuspicious) {
-                        logs.add("[DANGER] Cloud AI detected high-risk patterns!")
+                        logs.add("WARNING: Malicious intent detected! ❌")
                         delay(500)
-                        logs.add("> STATUS: MALICIOUS THREAT DETECTED.")
-                        onResult(3)
+                        logs.add("RESULT: THIS MESSAGE IS DANGEROUS.")
+                        onResult(3) // 3 = Threat State
                     } else {
-                        logs.add("[✔] Cloud AI completed analysis.")
+                        logs.add("Scan finished. No threats found. ✔")
                         delay(500)
-                        logs.add("> STATUS: 100% SAFE TO BROWSE/READ.")
-                        onResult(2)
+                        logs.add("RESULT: THIS MESSAGE IS SAFE.")
+                        onResult(2) // 2 = Safe State
                     }
                 } else {
-                    logs.add("[ERROR] Server rejected the request. Code: ${response.code()}")
+                    logs.add("ERROR: Server rejected the request.")
                     onResult(0)
                 }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                logs.add("[ERROR] Network failure. Cloud is offline.")
+                logs.add("ERROR: Server is down or no internet.")
                 onResult(0)
             }
         }
@@ -302,61 +379,73 @@ suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: and
 }
 
 // ==========================================
-// 2. OFFLINE LOCAL TFLITE LOGIC (From Local Storage)
+// 2. OFFLINE LOCAL TFLITE LOGIC (FIXED: INT32 & 2D Array Shape)
 // ==========================================
 suspend fun runLocalTFLiteAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
-    logs.add("> Network Status: OFFLINE")
+    logs.add("No internet. Using offline mode...")
     delay(400)
-    logs.add("> Activating Local TFLite Core (Fallback Mode)...")
+    logs.add("Starting local scanner...")
     delay(600)
 
     withContext(Dispatchers.IO) {
         try {
-            // 🔥 এখন assets থেকে নয়, ইউজারের ফোনের Local filesDir থেকে রিড করছে!
-            withContext(Dispatchers.Main) { logs.add("> Loading cyberaware_model.tflite from Device Storage...") }
+            withContext(Dispatchers.Main) { logs.add("Loading offline files...") }
             val tfliteModel = loadModelFromStorage(context, "cyberaware_model.tflite")
             val interpreter = Interpreter(tfliteModel)
 
             withContext(Dispatchers.Main) {
-                logs.add("[✔] Local Model loaded successfully.")
+                logs.add("Local scanner is ready. ✔")
                 delay(300)
-                logs.add("> Parsing vocabulary (vocab.txt)...")
+                logs.add("Reading your message carefully...")
             }
 
             val vocab = loadVocabFromStorage(context, "vocab.txt")
 
-            withContext(Dispatchers.Main) { logs.add("> Tokenizing payload semantics...") }
-            val inputSequence = tokenizeInput(payloadData, vocab, maxLen = 50)
+            val inputData = tokenizeInputForModel(payloadData, vocab, maxLen = 128)
 
-            val inputArray = arrayOf(inputSequence)
-            val outputArray = arrayOf(FloatArray(1))
+            val inputIds2D = Array(1) { inputData.first }
+            val attentionMask2D = Array(1) { inputData.second }
+
+            val inputs = arrayOf<Any>(inputIds2D, attentionMask2D)
+            val outputBuffer = Array(1) { FloatArray(4) }
+            val outputs = mapOf(0 to outputBuffer)
 
             withContext(Dispatchers.Main) {
                 delay(600)
-                logs.add("> Running Neural Inference locally...")
+                logs.add("Looking for hidden threats...")
             }
 
-            interpreter.run(inputArray, outputArray)
-            val spamScore = outputArray[0][0]
+            interpreter.runForMultipleInputsOutputs(inputs, outputs)
+            val probabilities = outputBuffer[0]
+
+            var maxIndex = 0
+            var maxProb = probabilities[0]
+            for (i in 1 until probabilities.size) {
+                if (probabilities[i] > maxProb) {
+                    maxProb = probabilities[i]
+                    maxIndex = i
+                }
+            }
 
             withContext(Dispatchers.Main) {
                 delay(600)
-                if (spamScore > 0.5f) {
-                    logs.add("[DANGER] Threat probability is ${(spamScore * 100).toInt()}%!")
+                if (maxIndex >= 2) {
+                    logs.add("WARNING: High chance of being a scam! (Confidence: ${(maxProb * 100).toInt()}%) ❌")
                     delay(400)
-                    logs.add("> STATUS: MALICIOUS THREAT DETECTED.")
+                    logs.add("RESULT: THIS MESSAGE IS DANGEROUS.")
                     onResult(3)
                 } else {
-                    logs.add("[✔] Threat probability is low (${(spamScore * 100).toInt()}%).")
+                    logs.add("Scan finished. No threats found. ✔")
                     delay(400)
-                    logs.add("> STATUS: 100% SAFE TO BROWSE/READ.")
+                    logs.add("RESULT: THIS MESSAGE IS SAFE.")
                     onResult(2)
                 }
             }
             interpreter.close()
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                logs.add("[ERROR] Offline model execution failed: ${e.message}")
+                logs.add("ERROR DETAILS: ${e.message}")
+                logs.add("ERROR: Local scanner failed to run.")
                 onResult(0)
             }
         }
@@ -364,12 +453,11 @@ suspend fun runLocalTFLiteAnalysis(context: Context, payloadData: String, logs: 
 }
 
 // ==========================================
-// 3. DYNAMIC RESOURCE DOWNLOADER LOGIC
+// 3. DOWNLOADER LOGIC
 // ==========================================
 suspend fun downloadOfflineResources(context: Context): Boolean {
-    // ⚠️ আপনার সার্ভার বা গুগল ড্রাইভের ডাইরেক্ট ডাউনলোড লিংক এখানে বসাতে হবে
-    val modelUrl = "https://drive.google.com/uc?export=download&id=189TVyF7tAY5OcM6sZnn7LjSvyCcNyziM"
-    val vocabUrl = "https://drive.google.com/uc?export=download&id=1T47vuAWAyS9mGZl0yBRp9g05WjIWBOuA"
+    val modelUrl = "https://pub-43adda752ae546939758ef344e12b935.r2.dev/cyberaware_model.tflite"
+    val vocabUrl = "https://pub-43adda752ae546939758ef344e12b935.r2.dev/vocab.txt"
 
     val modelFile = File(context.filesDir, "cyberaware_model.tflite")
     val vocabFile = File(context.filesDir, "vocab.txt")
@@ -388,11 +476,7 @@ private fun downloadSingleFile(urlStr: String, destFile: File): Boolean {
         connection.requestMethod = "GET"
         connection.connect()
 
-        // ⚠️ আপনার আসল লিংক বসানোর আগ পর্যন্ত এটি কাজ করবে না।
-        // তাই আপাতত টেস্টিং এর জন্য আমি এটি True রিটার্ন করে রাখছি এবং খালি ফাইল বানাচ্ছি।
-        // আপনার লিংক বসানোর পর নিচের if ব্লকটি চালু করে দিবেন:
-
-        /* if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
             val input = connection.inputStream
             val output = FileOutputStream(destFile)
             val buffer = ByteArray(4096)
@@ -404,16 +488,9 @@ private fun downloadSingleFile(urlStr: String, destFile: File): Boolean {
             output.close()
             input.close()
             return true
+        } else {
+            return false
         }
-        return false
-        */
-
-        // Dummy creation for testing without real links:
-        if (!destFile.exists()) {
-            destFile.createNewFile()
-        }
-        true
-
     } catch (e: Exception) {
         e.printStackTrace()
         false
@@ -421,7 +498,7 @@ private fun downloadSingleFile(urlStr: String, destFile: File): Boolean {
 }
 
 // ==========================================
-// LOCAL STORAGE HELPER FUNCTIONS
+// HELPER FUNCTIONS
 // ==========================================
 fun isInternetAvailable(context: Context): Boolean {
     val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -430,7 +507,6 @@ fun isInternetAvailable(context: Context): Boolean {
     return activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
 }
 
-// 🔥 Load from filesDir instead of assets
 private fun loadModelFromStorage(context: Context, modelName: String): MappedByteBuffer {
     val file = File(context.filesDir, modelName)
     val fileInputStream = FileInputStream(file)
@@ -438,7 +514,6 @@ private fun loadModelFromStorage(context: Context, modelName: String): MappedByt
     return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
 }
 
-// 🔥 Load from filesDir instead of assets
 private fun loadVocabFromStorage(context: Context, vocabName: String): Map<String, Int> {
     val file = File(context.filesDir, vocabName)
     val vocab = mutableMapOf<String, Int>()
@@ -448,61 +523,112 @@ private fun loadVocabFromStorage(context: Context, vocabName: String): Map<Strin
     return vocab
 }
 
-private fun tokenizeInput(text: String, vocab: Map<String, Int>, maxLen: Int): FloatArray {
-    val words = text.lowercase().split("\\s+".toRegex())
-    val tokenized = FloatArray(maxLen) { 0f }
-    for (i in 0 until minOf(words.size, maxLen)) {
-        tokenized[i] = vocab[words[i]]?.toFloat() ?: 0f
+private fun tokenizeInputForModel(text: String, vocab: Map<String, Int>, maxLen: Int): Pair<IntArray, IntArray> {
+    val cleanedText = text.lowercase().trim()
+    val words = cleanedText.split(Regex("\\s+"))
+
+    val inputIds = IntArray(maxLen)
+    val attentionMask = IntArray(maxLen)
+
+    val clsId = vocab["[CLS]"] ?: 101
+    val sepId = vocab["[SEP]"] ?: 102
+    val unkId = vocab["[UNK]"] ?: 100
+
+    var index = 0
+
+    // Start Token
+    inputIds[index] = clsId
+    attentionMask[index] = 1
+    index++
+
+    for (word in words) {
+        if (index >= maxLen - 1) break // Leave room for SEP
+        inputIds[index] = vocab[word] ?: unkId
+        attentionMask[index] = 1
+        index++
     }
-    return tokenized
+
+    // End Token
+    if (index < maxLen) {
+        inputIds[index] = sepId
+        attentionMask[index] = 1
+    }
+
+    return Pair(inputIds, attentionMask)
 }
 
 // ==========================================
-// ANIMATION COMPONENTS
+// 🔥 HIGHLY ADVANCED ANIMATION COMPONENTS 🔥
 // ==========================================
-@Composable
-fun ScannerIdleState() {
-    Box(modifier = Modifier.size(120.dp).background(Color(0xFF1E293B), CircleShape).border(2.dp, Color.Gray, CircleShape), contentAlignment = Alignment.Center) {
-        Icon(Icons.Default.Link, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(50.dp))
-    }
-}
 
 @Composable
-fun ScannerActiveState() {
+fun AdvancedIdleState() {
     val infiniteTransition = rememberInfiniteTransition()
-    val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.3f, animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse))
-    val alpha by infiniteTransition.animateFloat(initialValue = 0.2f, targetValue = 0.8f, animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse))
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.8f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse)
+    )
+
+    Box(modifier = Modifier.size(100.dp).scale(pulse).background(Color(0xFF1E293B), CircleShape).border(2.dp, Color.DarkGray, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.Link, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+    }
+}
+
+@Composable
+fun AdvancedActiveScanningState() {
+    val infiniteTransition = rememberInfiniteTransition()
+    val rotation by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(tween(2500, easing = LinearEasing), RepeatMode.Restart))
+    val fastRotation by infiniteTransition.animateFloat(initialValue = 360f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart))
+    val pulse by infiniteTransition.animateFloat(initialValue = 0.8f, targetValue = 1.2f, animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse))
 
     Box(contentAlignment = Alignment.Center) {
-        Box(modifier = Modifier.size(150.dp).scale(scale).background(NeonCyan.copy(alpha = alpha), CircleShape))
-        Box(modifier = Modifier.size(120.dp).background(Color(0xFF1E293B), CircleShape).border(2.dp, NeonCyan, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.ScreenSearchDesktop, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(50.dp))
+        Box(modifier = Modifier.size(140.dp).scale(pulse).background(NeonCyan.copy(alpha = 0.1f), CircleShape))
+
+        Canvas(modifier = Modifier.size(120.dp).graphicsLayer { rotationZ = rotation }) {
+            drawArc(color = NeonCyan.copy(alpha = 0.5f), startAngle = 0f, sweepAngle = 360f, useCenter = false, style = Stroke(width = 4.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 20f))))
+            drawArc(color = NeonPurple, startAngle = 0f, sweepAngle = 90f, useCenter = false, style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round))
+        }
+
+        Canvas(modifier = Modifier.size(90.dp).graphicsLayer { rotationZ = fastRotation }) {
+            drawArc(color = NeonCyan, startAngle = 0f, sweepAngle = 120f, useCenter = false, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+        }
+
+        Box(modifier = Modifier.size(70.dp).background(Color(0xFF131C2B), CircleShape).border(2.dp, NeonCyan, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.ScreenSearchDesktop, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(30.dp))
         }
     }
 }
 
 @Composable
-fun ScannerResultState(isSafe: Boolean) {
+fun AdvancedResultState(isSafe: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition()
     val color = if (isSafe) Color.Green else Color.Red
     val icon = if (isSafe) Icons.Default.HealthAndSafety else Icons.Default.GppBad
     val text = if (isSafe) "SAFE" else "THREAT"
 
+    val auraScale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.4f, animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse))
+    val auraAlpha by infiniteTransition.animateFloat(initialValue = 0.5f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Restart))
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.size(120.dp).background(color.copy(alpha = 0.2f), CircleShape).border(3.dp, color, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(60.dp))
+        Box(contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(100.dp).scale(auraScale).background(color.copy(alpha = auraAlpha), CircleShape))
+            Box(modifier = Modifier.size(100.dp).background(color.copy(alpha = 0.2f), CircleShape).border(3.dp, color, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(50.dp))
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Text(text, color = color, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+        Text(text, color = color, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
     }
 }
 
 @Composable
-fun ScannerGridBackground() {
+fun CleanCyberBackground() {
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val gridSize = 100f
+        val gridSize = 120f
         val cols = (size.width / gridSize).toInt()
         val rows = (size.height / gridSize).toInt()
-        for (i in 0..cols) { drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(i * gridSize, 0f), end = Offset(i * gridSize, size.height), strokeWidth = 2f) }
-        for (i in 0..rows) { drawLine(color = Color.White.copy(alpha = 0.03f), start = Offset(0f, i * gridSize), end = Offset(size.width, i * gridSize), strokeWidth = 2f) }
+
+        for (i in 0..cols) { drawLine(color = Color.White.copy(alpha = 0.04f), start = Offset(i * gridSize, 0f), end = Offset(i * gridSize, size.height), strokeWidth = 2f) }
+        for (i in 0..rows) { drawLine(color = Color.White.copy(alpha = 0.04f), start = Offset(0f, i * gridSize), end = Offset(size.width, i * gridSize), strokeWidth = 2f) }
     }
 }

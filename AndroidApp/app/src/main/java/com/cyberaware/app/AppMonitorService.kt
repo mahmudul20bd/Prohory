@@ -8,6 +8,11 @@ import android.view.accessibility.AccessibilityEvent
 
 class AppMonitorService : AccessibilityService() {
 
+    // 🔥 THE FIX: Session Tracker
+    companion object {
+        var temporarilyUnlockedPackage: String? = null
+    }
+
     private var currentApp: String = ""
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -22,7 +27,16 @@ class AppMonitorService : AccessibilityService() {
             if (packageName != currentApp) {
                 currentApp = packageName
                 Log.d("Prohory_AppMonitor", "User opened: $packageName")
-                checkIfAppIsLocked(packageName)
+
+                // 🔥 Check if the user just unlocked this specific app via Fingerprint
+                if (packageName == temporarilyUnlockedPackage) {
+                    Log.d("Prohory_AppMonitor", "🔓 Access Granted for session: $packageName")
+                    return // Let them use the app
+                } else {
+                    // User switched to a new app, reset the temporary unlock session
+                    temporarilyUnlockedPackage = null
+                    checkIfAppIsLocked(packageName)
+                }
             }
         }
     }

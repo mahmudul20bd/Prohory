@@ -7,6 +7,7 @@ import android.util.Log
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.flex.FlexDelegate
 import java.io.BufferedReader
+import java.io.File
 import java.io.FileInputStream
 import java.io.InputStreamReader
 import java.nio.MappedByteBuffer
@@ -66,7 +67,7 @@ class SpamDetector private constructor(private val context: Context) {
                 interpreter = Interpreter(modelFile, options)
                 isLoaded = true
 
-                Log.d("CyberAware_AI", "🚀 AI Engine Ready & Loaded")
+                Log.d("CyberAware_AI", "🚀 AI Engine Ready & Loaded from filesDir")
 
                 // ইনপুট শেপ চেক (ডিবাগিংয়ের জন্য)
                 try {
@@ -150,22 +151,28 @@ class SpamDetector private constructor(private val context: Context) {
         }
     }
 
-    // --- Helper Functions ---
+    // ==========================================
+    // 🔥 PATH BUG FIX: Loading from filesDir instead of assets
+    // ==========================================
 
     private fun loadModelFile(): MappedByteBuffer {
-        val fileDescriptor = context.assets.openFd(MODEL_NAME)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        val file = File(context.filesDir, MODEL_NAME)
+        if (!file.exists()) {
+            throw Exception("Model file not found in filesDir")
+        }
+        val fileInputStream = FileInputStream(file)
+        val fileChannel = fileInputStream.channel
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
     }
 
     private fun loadVocab(): Map<String, Int> {
         val vocabMap = HashMap<String, Int>()
         try {
-            val inputStream = context.assets.open(VOCAB_NAME)
-            val reader = BufferedReader(InputStreamReader(inputStream))
+            val file = File(context.filesDir, VOCAB_NAME)
+            if (!file.exists()) {
+                throw Exception("Vocab file not found in filesDir")
+            }
+            val reader = BufferedReader(InputStreamReader(FileInputStream(file)))
             var index = 0
             reader.forEachLine { line ->
                 if (line.isNotEmpty()) {

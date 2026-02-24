@@ -7,33 +7,44 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Point
 import android.util.Log
+import android.widget.Toast
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CellTower
-import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import com.cyberaware.app.ui.theme.NeonCyan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import org.json.JSONObject
@@ -43,7 +54,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polygon
-import org.osmdroid.views.overlay.TilesOverlay
 
 // Data Models
 data class DivisionSector(
@@ -52,12 +62,13 @@ data class DivisionSector(
     var centerLat: Double,
     var centerLon: Double,
     val polygons: List<List<GeoPoint>>,
-    var threatLevel: Int = 0, // Used for coloring (Red/Yellow)
-    var safeScans: Int = 0,   // Just for stats
-    var targetedUsers: Int = 0
+    var threatLevel: Int = 0,
+    var safeScans: Int = 0,
+    var targetedUsers: Int = 0,
+    var confidence: Double = 0.95
 )
 
-data class AdvancedAttackLog(val id: Int, val logMessage: String, val severity: String, val timestamp: Long)
+data class AdvancedAttackLog(val id: Int, val logMessage: String, val severity: String, val timestamp: Long, val rawDetails: String = "")
 
 @Composable
 fun GlobalThreatMapScreen() {
@@ -70,11 +81,49 @@ fun GlobalThreatMapScreen() {
     var totalThreatsBlocked by remember { mutableIntStateOf(0) }
     val liveLogs = remember { mutableStateListOf<AdvancedAttackLog>() }
     var logCounter by remember { mutableIntStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val listState = rememberLazyListState()
+
+    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    val token = sharedPref.getString("auth_token", "") ?: ""
+    val authHeader = if (token.startsWith("Bearer ")) token else "Bearer $token"
+
+    var showRadarPrompt by remember { mutableStateOf(!sharedPref.getBoolean("has_seen_radar_prompt", false)) }
 
     LaunchedEffect(Unit) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+
         withContext(Dispatchers.IO) {
             val parsedDivisions = parseGeoJsonSmart(context)
+
+            try {
+                val statsResponse = com.cyberaware.app.network.RetrofitClient.apiService.getDashboardStats(authHeader)
+                if (statsResponse.isSuccessful) {
+                    val stats = statsResponse.body()
+                    if (stats != null) {
+                        withContext(Dispatchers.Main) {
+                            totalThreatsBlocked = stats.blockedScams
+                        }
+                    }
+                }
+
+                val logsResponse = com.cyberaware.app.network.RetrofitClient.apiService.getNeuralLogs(authHeader)
+                if (logsResponse.isSuccessful) {
+                    val logs = logsResponse.body() ?: emptyList()
+                    withContext(Dispatchers.Main) {
+                        logs.filter { it.actionType != "LOGIN" && it.actionType != "REGISTRATION" }
+                            .take(15)
+                            .forEach { log ->
+                                val severity = if (log.actionType == "THREAT_DETECTED" || log.actionType == "TELEMETRY_ALERT" || log.actionType == "THREAT" || log.actionType == "SCAM") "CRITICAL" else "WARNING"
+                                liveLogs.add(AdvancedAttackLog(logCounter++, log.details, severity, 0L, log.details))
+                            }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PROHORY_MAP", "Failed to fetch map history: ${e.message}")
+            }
+
             withContext(Dispatchers.Main) {
                 bdDivisions = parsedDivisions
                 isLoading = false
@@ -82,12 +131,11 @@ fun GlobalThreatMapScreen() {
         }
     }
 
-    // 🔥 REAL BACKEND WEBSOCKET CONNECTION (STOMP Protocol over OkHttp)
+    // REAL BACKEND WEBSOCKET CONNECTION
     LaunchedEffect(bdDivisions) {
         if (bdDivisions.isEmpty()) return@LaunchedEffect
 
         val client = OkHttpClient()
-        // Note: Spring Boot SockJS fallback raw endpoint is often /ws/websocket or /ws/websocket/websocket
         val request = Request.Builder().url("wss://cyber-aware.onrender.com/ws/websocket").build()
 
         val webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -95,101 +143,174 @@ fun GlobalThreatMapScreen() {
                 Log.d("PROHORY_WS", "Connected to Server")
                 connectionStatus = "CONNECTED"
 
-                // STOMP Connect Frame
                 webSocket.send("CONNECT\naccept-version:1.1,1.0\nheart-beat:10000,10000\n\n\u0000")
-                // STOMP Subscribe Frame
                 webSocket.send("SUBSCRIBE\nid:sub-0\ndestination:/topic/alerts\n\n\u0000")
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                // Parse STOMP Message Frame
+            override fun onMessage(webSocket: okhttp3.WebSocket, text: String) {
                 if (text.startsWith("MESSAGE")) {
                     try {
                         val jsonStartIndex = text.indexOf("{")
                         val jsonEndIndex = text.lastIndexOf("}") + 1
                         if (jsonStartIndex in 0 until jsonEndIndex) {
                             val jsonString = text.substring(jsonStartIndex, jsonEndIndex)
-                            val json = JSONObject(jsonString)
+                            val json = org.json.JSONObject(jsonString)
 
                             val isSpam = json.optBoolean("isSpam", false)
-                            val region = json.optString("region", "Dhaka") // Default to Dhaka if not provided
-                            val type = json.optString("type", if (isSpam) "Phishing Attempt" else "Safe Scan")
+                            val region = json.optString("region", "UNKNOWN")
+                            val type = json.optString("type", "Unknown Threat")
+                            val confidence = json.optDouble("confidence", 0.0)
+                            val rawHeatPoints = json.optInt("heatPoints", 1)
 
-                            // 🚀 CONCURRENCY & PRIORITY LOGIC
-                            val targetDiv = bdDivisions.find { it.name.equals(region, ignoreCase = true) }
-                            if (targetDiv != null) {
-                                if (isSpam) {
-                                    // SPAM: High priority, immediately spikes threat level
-                                    targetDiv.threatLevel += 10
-                                    targetDiv.targetedUsers += 1
+                            if (isSpam) {
+                                coroutineScope.launch {
                                     totalThreatsBlocked++
 
-                                    val severity = if (targetDiv.threatLevel > 20) "CRITICAL" else "WARNING"
-                                    val msg = "[LIVE] $type intercepted in ${targetDiv.name}."
-                                    liveLogs.add(0, AdvancedAttackLog(logCounter++, msg, severity, System.currentTimeMillis()))
-                                } else {
-                                    // SAFE: Low priority, just increments safe scan count, doesn't spike map color
-                                    targetDiv.safeScans += 1
-                                    // Optionally add to log if you want, but better to keep logs clean for threats
-                                }
+                                    val severity = if (rawHeatPoints >= 3) "CRITICAL" else "WARNING"
+                                    val displayRegion = if (region == "UNKNOWN") "an UNKNOWN Origin" else "$region Region"
 
-                                // Keep logs max 20 to prevent memory leak
-                                if (liveLogs.size > 20) liveLogs.removeAt(liveLogs.size - 1)
+                                    val msg = "🚨 Alert! $type scam detected in $displayRegion."
+
+                                    liveLogs.add(0, AdvancedAttackLog(logCounter++, msg, severity, System.currentTimeMillis(), msg))
+
+                                    val targetDiv = bdDivisions.find {
+                                        it.name.contains(region, ignoreCase = true) || region.contains(it.name, ignoreCase = true)
+                                    }
+
+                                    if (targetDiv != null) {
+                                        targetDiv.threatLevel += (rawHeatPoints * 10)
+                                        targetDiv.confidence = confidence
+                                        targetDiv.targetedUsers += 1
+                                    }
+
+                                    if (liveLogs.size > 20) liveLogs.removeAt(liveLogs.size - 1)
+                                    listState.animateScrollToItem(0)
+                                }
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("PROHORY_WS", "JSON Parse Error: ${e.message}")
+                        e.printStackTrace()
                     }
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                connectionStatus = "DISCONNECTED (RETRYING)"
+                connectionStatus = "DISCONNECTED"
                 Log.e("PROHORY_WS", "WebSocket Failed: ${t.message}")
             }
         })
 
-        // Cool-down logic (Threat level decreases over time if no new spam comes)
         while (true) {
             delay(1000)
             bdDivisions.forEach { if (it.threatLevel > 0) it.threatLevel -= 2 }
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A)).padding(16.dp)) {
+    if (showRadarPrompt) {
+        RegionalSetupModal(
+            onDismiss = {
+                sharedPref.edit().putBoolean("has_seen_radar_prompt", true).apply()
+                showRadarPrompt = false
+            },
+            onSave = { selectedDivision ->
+                sharedPref.edit()
+                    .putString("user_division", selectedDivision)
+                    .putBoolean("has_seen_radar_prompt", true)
+                    .apply()
+                showRadarPrompt = false
+                Toast.makeText(context, "Radar Enhanced for $selectedDivision Region", Toast.LENGTH_LONG).show()
+            }
+        )
+    }
 
-        // 🌟 UX ENHANCEMENT: System Status HUD
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            color = Color(0xFF0B1221),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.2f))
+    // Animation for the live dot
+    val infiniteTransition = rememberInfiniteTransition()
+    val dotPulse by infiniteTransition.animateFloat(
+        initialValue = 0.5f, targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF02040A))
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 4.dp)
+    ) {
+
+        // 🔥 UPGRADED HEADER WITH LIVE PULSE DOT
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val statusColor = if (connectionStatus == "CONNECTED") Color.Green else Color.Red
-                    Icon(Icons.Default.CellTower, contentDescription = null, tint = statusColor, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("SERVER LINK", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text(connectionStatus, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .scale(dotPulse)
+                    .background(Color.Green, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text("Live Threat Map", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("See real-time scams and dangerous messages being detected across the country.", color = Color.Gray, fontSize = 11.sp)
+            }
+        }
+
+        // 🔥 UPGRADED PREMIUM HUD CARDS (SPLIT LAYOUT)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Card 1: Server Link
+            val isConnected = connectionStatus == "CONNECTED"
+            val linkColor = if (isConnected) Color(0xFF10B981) else Color.Red
+
+            Surface(
+                modifier = Modifier.weight(1f).height(65.dp),
+                color = Color(0xFF131C2B),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, linkColor.copy(alpha = 0.3f))
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).background(linkColor.copy(alpha = 0.1f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(if(isConnected) Icons.Default.CellTower else Icons.Default.WifiTethering, contentDescription = null, tint = linkColor, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(verticalArrangement = Arrangement.Center) {
+                        Text("SERVER LINK", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(connectionStatus, color = linkColor, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
                 }
+            }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("THREATS BLOCKED", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text("$totalThreatsBlocked", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+            // Card 2: Threats Blocked
+            Surface(
+                modifier = Modifier.weight(1f).height(65.dp),
+                color = Color(0xFF131C2B),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0xFFFF9800).copy(alpha = 0.3f))
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).background(Color(0xFFFF9800).copy(alpha = 0.1f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(verticalArrangement = Arrangement.Center) {
+                        Text("BLOCKED", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("$totalThreatsBlocked Threats", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
         }
 
-        // 🌟 REAL MAP
+        // Fully Responsive Map
         Surface(
-            modifier = Modifier.fillMaxWidth().height(360.dp)
+            modifier = Modifier.fillMaxWidth().weight(1.2f)
                 .border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                 .clip(RoundedCornerShape(16.dp)),
             color = Color(0xFF0B1221)
@@ -205,7 +326,7 @@ fun GlobalThreatMapScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 🌟 Live Threat Terminal
+        // Responsive Terminal Logs
         Surface(
             modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(16.dp)),
             color = Color(0xFF131C2B),
@@ -215,18 +336,18 @@ fun GlobalThreatMapScreen() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Memory, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("SYSTEM INTERCEPT LOGS", color = Color.Gray, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                    Text("RECENT SECURITY ACTIVITY", color = Color.Gray, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
                 Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
-                LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 8.dp)
+                ) {
                     items(liveLogs, key = { it.id }) { log ->
-                        val textColor = if (log.severity == "CRITICAL") Color(0xFFFF5252) else Color(0xFFFFD740)
-                        Text(
-                            text = log.logMessage, color = textColor, fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = if (log.severity == "CRITICAL") FontWeight.Bold else FontWeight.Normal,
-                            lineHeight = 16.sp
-                        )
+                        AnimatedLogItem(log)
                     }
                 }
             }
@@ -234,7 +355,170 @@ fun GlobalThreatMapScreen() {
     }
 }
 
-// 🔥 Smart GeoJSON Parser (No Color Mapping Needed Anymore)
+@Composable
+fun AnimatedLogItem(log: AdvancedAttackLog) {
+    val userFriendlyMessage = remember(log.rawDetails) {
+        val details = log.rawDetails.lowercase()
+        when {
+            log.logMessage.startsWith("🚨") -> log.logMessage
+            details.contains("ocr") || details.contains("image") -> "📸 Image scan completed."
+            details.contains("manual") -> "🔍 Manual message scan completed."
+            details.contains("phishing") || details.contains("link") -> "🎣 Dangerous website link was blocked."
+            log.severity == "CRITICAL" -> "⚠️ A harmful spam or scam message was detected."
+            else -> "✅ System security check completed."
+        }
+    }
+
+    val statusColor = if (log.severity == "CRITICAL") Color(0xFFFF5252) else Color(0xFF3B82F6)
+
+    val infiniteTransition = rememberInfiniteTransition()
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.7f, targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse)
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF0B1221).copy(alpha = 0.5f),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.2f))
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .scale(pulse)
+                    .background(statusColor, CircleShape)
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = userFriendlyMessage,
+                    color = if (log.severity == "CRITICAL") Color(0xFFFFCDD2) else Color.White,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Default,
+                    fontWeight = if (log.severity == "CRITICAL") FontWeight.Bold else FontWeight.Medium,
+                    lineHeight = 16.sp
+                )
+
+                val timeStr = if(log.timestamp > 0) "Just now" else "Recent Activity"
+                Text(
+                    text = timeStr,
+                    color = Color(0xFFB0BEC5),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+// ... [RegionalSetupModal, parseGeoJsonSmart, DivisionMapComposable, AdvancedThreatOverlay exactly the same] ...
+
+@Composable
+fun RegionalSetupModal(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    var selectedDiv by remember { mutableStateOf("Select Division") }
+    val divisions = listOf("Dhaka", "Chittagong", "Sylhet", "Rajshahi", "Khulna", "Barisal", "Rangpur", "Mymensingh")
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF0B1221),
+            border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.6f)),
+            modifier = Modifier.fillMaxWidth().padding(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier.size(60.dp).background(NeonCyan.copy(alpha = 0.1f), CircleShape).border(1.dp, NeonCyan, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.GpsFixed, contentDescription = "Radar", tint = NeonCyan, modifier = Modifier.size(30.dp))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("ENHANCE REGIONAL RADAR", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    "Help Prohory map local cyber threats accurately. Select your division to activate High-Confidence (0.95) threat detection in your area.",
+                    color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Box(modifier = Modifier.fillMaxWidth().wrapContentSize(Alignment.TopStart)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().height(50.dp).clickable { expanded = true },
+                        color = Color(0xFF131C2B),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color.DarkGray)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(selectedDiv, color = if (selectedDiv == "Select Division") Color.Gray else Color.White, fontSize = 14.sp)
+                            Icon(Icons.Default.ArrowDropDown, null, tint = Color.Gray)
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth(0.8f).background(Color(0xFF131C2B))
+                    ) {
+                        divisions.forEach { div ->
+                            DropdownMenuItem(
+                                text = { Text(div, color = Color.White) },
+                                onClick = {
+                                    selectedDiv = div
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(45.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color.Gray)
+                    ) {
+                        Text("SKIP", color = Color.Gray, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { if (selectedDiv != "Select Division") onSave(selectedDiv) },
+                        enabled = selectedDiv != "Select Division",
+                        modifier = Modifier.weight(1f).height(45.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selectedDiv != "Select Division") Color(0xFF10B981) else Color.DarkGray
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("ACTIVATE", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 fun parseGeoJsonSmart(context: Context): List<DivisionSector> {
     val list = mutableListOf<DivisionSector>()
     val knownDivisions = listOf("Dhaka", "Chittagong", "Sylhet", "Rajshahi", "Khulna", "Barisal", "Rangpur", "Mymensingh")
@@ -292,7 +576,7 @@ fun parseGeoJsonSmart(context: Context): List<DivisionSector> {
                 centerLon = largestPolygon.map { it.longitude }.average()
             }
 
-            list.add(DivisionSector(i, detectedName, centerLat, centerLon, polygonsList, threatLevel = 0))
+            list.add(DivisionSector(i, detectedName, centerLat, centerLon, polygonsList, threatLevel = 0, safeScans = 0, targetedUsers = 0, confidence = 0.95))
         }
     } catch (e: Exception) { e.printStackTrace() }
     return list
@@ -305,7 +589,7 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(16) // 60 FPS Animation
+            delay(16)
             mapView.postInvalidate()
         }
     }
@@ -334,13 +618,12 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
                 inverseMatrix.postConcat(blueTint)
                 overlayManager.tilesOverlay.setColorFilter(ColorMatrixColorFilter(inverseMatrix))
 
-                // 🔥 BORDERS ARE NOW STRICTLY WHITE (#E0E0E0)
                 divisions.forEach { div ->
                     div.polygons.forEach { geoPoints ->
                         val polygon = Polygon().apply {
                             points = geoPoints
                             fillPaint.color = android.graphics.Color.TRANSPARENT
-                            outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0") // Professional White/Grey
+                            outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0")
                             outlinePaint.strokeWidth = 2.5f
                             outlinePaint.strokeJoin = Paint.Join.ROUND
                             outlinePaint.alpha = 150
@@ -353,7 +636,6 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
             }
         },
         update = { map ->
-            // Update polygon border colors ONLY if there is a threat
             map.overlays.filterIsInstance<Polygon>().forEach { poly ->
                 val div = divisions.find { it.name == poly.id }
                 if (div != null) {
@@ -362,7 +644,7 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
                         poly.outlinePaint.alpha = 255
                         poly.outlinePaint.strokeWidth = 3f
                     } else {
-                        poly.outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0") // Back to White
+                        poly.outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0")
                         poly.outlinePaint.alpha = 150
                         poly.outlinePaint.strokeWidth = 2.5f
                     }
@@ -372,18 +654,10 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
     )
 }
 
-// 🔥 THE FIX: 100% PERFECT RADAR WAVE (No solid fill, proper spreading animation)
 class AdvancedThreatOverlay(private val divisions: List<DivisionSector>) : Overlay() {
 
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
-
-    // STROKE is used so it looks like a ring/wave, NOT a filled puddle!
-    private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-    }
-
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE
         textSize = 28f
@@ -391,7 +665,6 @@ class AdvancedThreatOverlay(private val divisions: List<DivisionSector>) : Overl
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         setShadowLayer(8f, 0f, 0f, android.graphics.Color.BLACK)
     }
-
     private val point = Point()
 
     override fun draw(canvas: Canvas, osmv: MapView, shadow: Boolean) {
@@ -406,23 +679,19 @@ class AdvancedThreatOverlay(private val divisions: List<DivisionSector>) : Overl
             val py = point.y.toFloat()
 
             val (color, speed, maxRadius) = when {
-                div.threatLevel > 20 -> arrayOf(android.graphics.Color.parseColor("#FF1744"), 1200f, 150f) // RED (Critical)
-                div.threatLevel > 5  -> arrayOf(android.graphics.Color.parseColor("#FFC400"), 1600f, 100f) // YELLOW (Warning)
-                else                 -> arrayOf(android.graphics.Color.parseColor("#00E5FF"), 2500f, 60f)  // CYAN (Safe/Scanning)
+                div.threatLevel > 20 -> arrayOf(android.graphics.Color.parseColor("#FF1744"), 1200f, 150f)
+                div.threatLevel > 5  -> arrayOf(android.graphics.Color.parseColor("#FFC400"), 1600f, 100f)
+                else                 -> arrayOf(android.graphics.Color.parseColor("#00E5FF"), 2500f, 60f)
             }
 
-            val threatColor = color as Int
+            val isCritical = div.threatLevel > 5
+            val threatColor = if (div.confidence < 0.8 && isCritical) android.graphics.Color.parseColor("#FF9800") else color as Int
             val animSpeed = speed as Float
             val rippleMax = maxRadius as Float
 
-            // 1. Spreading Light Wave (The fix for the solid puddle)
             val phase = (time % animSpeed) / animSpeed
             val waveRadius = rippleMax * phase
-
-            // Starts highly visible, fades out to 0 as it gets bigger
             val waveAlpha = (255 * (1f - phase)).toInt().coerceIn(0, 255)
-
-            // Thickness of the wave decreases as it spreads for extreme realism
             val waveThickness = 8f * (1f - phase) + 2f
 
             wavePaint.color = threatColor
@@ -430,33 +699,25 @@ class AdvancedThreatOverlay(private val divisions: List<DivisionSector>) : Overl
             wavePaint.strokeWidth = waveThickness
             canvas.drawCircle(px, py, waveRadius, wavePaint)
 
-            // 2. The Center Dot (Blinking dynamically)
-            val isCritical = div.threatLevel > 5
             if (isCritical) {
-                // Heartbeat pulse for danger
                 val blinkAlpha = (100 + 155 * Math.abs(Math.sin(time / 200.0))).toInt()
                 dotPaint.color = threatColor
                 dotPaint.alpha = blinkAlpha
                 canvas.drawCircle(px, py, 12f, dotPaint)
             } else {
-                // Steady glow for safe
                 dotPaint.color = threatColor
                 dotPaint.alpha = 200
                 canvas.drawCircle(px, py, 8f, dotPaint)
             }
 
-            // Solid White Core
             dotPaint.color = android.graphics.Color.WHITE
             dotPaint.alpha = 255
             canvas.drawCircle(px, py, 4f, dotPaint)
 
-            // 3. Division Text
             if (div.name != "Unknown") {
                 canvas.drawText(div.name, px, py - 20f, textPaint)
             }
         }
-
-        // Force continuous redraw
         osmv.postInvalidate()
     }
 }
