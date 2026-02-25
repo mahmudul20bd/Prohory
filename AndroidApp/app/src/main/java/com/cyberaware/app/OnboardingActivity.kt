@@ -49,10 +49,11 @@ fun OnboardingScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // 🔥 User Friendly Texts applied here
     val pages = listOf(
-        OnboardingPage(R.raw.scan_anim, "THREAT DETECTION", "Advanced neural network algorithms designed to intercept real-time zero-day vulnerabilities."),
-        OnboardingPage(R.raw.cloud_anim, "GLOBAL INTELLIGENCE", "Synchronize with worldwide defense grids to stay ahead of modern phishing vectors."),
-        OnboardingPage(R.raw.cyber_success, "SYSTEM SECURED", "Deploy the ultimate firewall. Your identity, your data, fully encrypted and locked.")
+        OnboardingPage(R.raw.scan_anim, "DETECT SCAMS", "Automatically scan and block harmful messages, phishing links, and online scams in real-time."),
+        OnboardingPage(R.raw.cloud_anim, "REAL-TIME PROTECTION", "Our smart AI constantly learns and updates itself to keep you safe from the latest cyber threats."),
+        OnboardingPage(R.raw.cyber_success, "FULLY SECURED", "Your personal data and privacy are fully protected. Let's make your digital life safer today.")
     )
 
     val pagerState = rememberPagerState(pageCount = { pages.size })
@@ -60,10 +61,10 @@ fun OnboardingScreen() {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
 
-            // Skip Button
+            // Skip Button - Simplified Text
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd) {
                 TextButton(onClick = { finishOnboarding(context) }) {
-                    Text("SKIP SEQUENCE", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("SKIP", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 }
             }
 
@@ -90,7 +91,7 @@ fun OnboardingScreen() {
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Action Button
+            // Action Button - Simplified Text
             Button(
                 onClick = {
                     scope.launch {
@@ -110,7 +111,7 @@ fun OnboardingScreen() {
                     .background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)))
             ) {
                 Text(
-                    text = if (pagerState.currentPage == pages.size - 1) "INITIALIZE PROTOCOL" else "NEXT MODULE",
+                    text = if (pagerState.currentPage == pages.size - 1) "GET STARTED" else "NEXT",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
@@ -152,8 +153,8 @@ fun OnboardingPageContent(page: OnboardingPage) {
 }
 
 fun finishOnboarding(context: Context) {
-    val sharedPref = context.getSharedPreferences("AppPref", Context.MODE_PRIVATE)
-    sharedPref.edit().putBoolean("FirstTime", false).apply()
+    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    sharedPref.edit().putBoolean("isFirstTime", false).apply()
     context.startActivity(Intent(context, LoginActivity::class.java))
 }
 

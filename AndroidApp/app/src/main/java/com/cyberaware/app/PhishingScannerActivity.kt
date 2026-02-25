@@ -28,7 +28,10 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.ScreenSearchDesktop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,18 +60,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.tensorflow.lite.Interpreter
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 class PhishingScannerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
+        if (isScreenshotProtected) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
         setContent {
             CyberAwareTheme {
                 PhishingScannerScreen(onBack = { finish() })
@@ -86,33 +95,25 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
     var payloadInput by remember { mutableStateOf("") }
     val scanLogs = remember { mutableStateListOf<String>() }
 
+    // 🔥 scanState: 0=Idle, 1=Scanning, 2=Safe, 3=Promo, 4=Spam, 5=Danger
     var scanState by remember { mutableIntStateOf(0) }
     var downloadStatus by remember { mutableStateOf("Checking Offline Files...") }
     var isModelReady by remember { mutableStateOf(false) }
 
-    // 🔥 FIX: Real-time Internet Status State
     var isNetOn by remember { mutableStateOf(isInternetAvailable(context)) }
 
-    // 🔥 FIX: Listen to Internet Status instantly
     DisposableEffect(context) {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                isNetOn = true
-            }
-            override fun onLost(network: Network) {
-                isNetOn = false
-            }
+            override fun onAvailable(network: Network) { isNetOn = true }
+            override fun onLost(network: Network) { isNetOn = false }
         }
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
 
         connectivityManager.registerNetworkCallback(request, networkCallback)
-
-        onDispose {
-            connectivityManager.unregisterNetworkCallback(networkCallback)
-        }
+        onDispose { connectivityManager.unregisterNetworkCallback(networkCallback) }
     }
 
     val listState = rememberLazyListState()
@@ -177,7 +178,6 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                     Text(downloadStatus, color = if(isModelReady) Color.Green else Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
 
-                // 🔥 It will update instantly now!
                 val engineColor = if (isNetOn) NeonCyan else Color(0xFFFF9800)
                 val engineText = if (isNetOn) "USING ONLINE SCANNER (CLOUD)" else "USING OFFLINE SCANNER (LOCAL)"
 
@@ -219,21 +219,20 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                                 scanState = 1
                                 scanLogs.clear()
                                 coroutineScope.launch {
-                                    if (isNetOn) { // Use the real-time state here too
+                                    if (isNetOn) {
                                         runServerAIAnalysis(context, payloadInput, scanLogs) { scanState = it }
                                     } else {
                                         if (isModelReady) {
                                             runLocalTFLiteAnalysis(context, payloadInput, scanLogs) { scanState = it }
                                         } else {
-                                            scanLogs.add("ERROR: No internet connection.")
                                             scanLogs.add("ERROR: Offline files are missing.")
-                                            scanLogs.add("Please turn on internet to download files.")
                                             scanState = 0
                                         }
                                     }
                                 }
                             }
                         },
+
                         enabled = scanState != 1,
                         modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)),
                         colors = ButtonDefaults.buttonColors(containerColor = if (scanState == 1) Color.DarkGray else NeonPurple)
@@ -243,7 +242,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 }
             }
 
-            // ৪. Animation Box
+            // ৪. Animation Box (🔥 UPDATED FOR 4 LEVELS)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -253,8 +252,10 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 when (scanState) {
                     0 -> AdvancedIdleState()
                     1 -> AdvancedActiveScanningState()
-                    2 -> AdvancedResultState(isSafe = true)
-                    3 -> AdvancedResultState(isSafe = false)
+                    2 -> AdvancedResultState(level = 2) // Safe
+                    3 -> AdvancedResultState(level = 3) // Promo
+                    4 -> AdvancedResultState(level = 4) // Spam
+                    5 -> AdvancedResultState(level = 5) // Danger
                 }
             }
 
@@ -274,9 +275,11 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
 
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = false) {
                         items(scanLogs) { log ->
+                            // 🔥 Color Mapping for 4 Levels
                             val textColor = when {
-                                log.contains("DANGEROUS") || log.contains("WARNING") || log.contains("ERROR") || log.contains("❌") -> Color.Red
-                                log.contains("No internet") -> Color.Yellow
+                                log.contains("DANGER") || log.contains("❌") || log.contains("ERROR") -> Color.Red
+                                log.contains("SPAM") || log.contains("WARNING") -> Color(0xFFFF9800)
+                                log.contains("PROMO") || log.contains("INFO") -> Color(0xFF3B82F6)
                                 log.contains("✔") || log.contains("SAFE") -> Color.Green
                                 else -> NeonCyan
                             }
@@ -300,7 +303,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
 }
 
 // ==========================================
-// 1. ONLINE CLOUD AI LOGIC (FIXED: Uses Actual Backend Result)
+// 1. ONLINE CLOUD AI LOGIC
 // ==========================================
 suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
     logs.add("Checking internet connection...")
@@ -312,13 +315,14 @@ suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: and
     val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
     val token = sharedPref.getString("auth_token", "") ?: ""
     val reporterId = sharedPref.getString("username", "Agent") ?: "Agent"
-
     val userRegion = sharedPref.getString("user_division", "") ?: ""
+
     var deviceId = sharedPref.getString("anonymous_device_id", null)
     if (deviceId == null) {
         deviceId = java.util.UUID.randomUUID().toString()
         sharedPref.edit().putString("anonymous_device_id", deviceId).apply()
     }
+
     val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
     val osVersion = "Android ${android.os.Build.VERSION.RELEASE}"
 
@@ -351,18 +355,24 @@ suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: and
                     val resultBody = response.body() as? Map<*, *>
                     val aiResult = resultBody?.get("aiResult")?.toString()?.uppercase() ?: "SAFE"
 
-                    val isSuspicious = aiResult.contains("DANGER") || aiResult.contains("SPAM") || aiResult.contains("SCAM")
-
-                    if(isSuspicious) {
-                        logs.add("WARNING: Malicious intent detected! ❌")
-                        delay(500)
-                        logs.add("RESULT: THIS MESSAGE IS DANGEROUS.")
-                        onResult(3) // 3 = Threat State
-                    } else {
-                        logs.add("Scan finished. No threats found. ✔")
-                        delay(500)
-                        logs.add("RESULT: THIS MESSAGE IS SAFE.")
-                        onResult(2) // 2 = Safe State
+                    // 🔥 Map Cloud Result to 4 States
+                    when {
+                        aiResult.contains("DANGER") || aiResult.contains("SCAM") || aiResult.contains("PHISHING") -> {
+                            logs.add("DANGER: Malicious intent detected! ❌")
+                            onResult(5)
+                        }
+                        aiResult.contains("SPAM") -> {
+                            logs.add("WARNING: Spam content detected. ⚠️")
+                            onResult(4)
+                        }
+                        aiResult.contains("PROMO") -> {
+                            logs.add("INFO: Promotional content found. ℹ️")
+                            onResult(3)
+                        }
+                        else -> {
+                            logs.add("Scan finished. No threats found. ✔")
+                            onResult(2)
+                        }
                     }
                 } else {
                     logs.add("ERROR: Server rejected the request.")
@@ -379,74 +389,45 @@ suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: and
 }
 
 // ==========================================
-// 2. OFFLINE LOCAL TFLITE LOGIC (FIXED: INT32 & 2D Array Shape)
+// 2. OFFLINE LOCAL TFLITE LOGIC (USES SpamDetector.kt)
 // ==========================================
 suspend fun runLocalTFLiteAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
-    logs.add("No internet. Using offline mode...")
+    logs.add("No internet. Initializing Local AI...")
     delay(400)
-    logs.add("Starting local scanner...")
-    delay(600)
 
-    withContext(Dispatchers.IO) {
-        try {
-            withContext(Dispatchers.Main) { logs.add("Loading offline files...") }
-            val tfliteModel = loadModelFromStorage(context, "cyberaware_model.tflite")
-            val interpreter = Interpreter(tfliteModel)
+    val detector = SpamDetector.getInstance(context)
 
-            withContext(Dispatchers.Main) {
-                logs.add("Local scanner is ready. ✔")
-                delay(300)
-                logs.add("Reading your message carefully...")
+    withContext(Dispatchers.Main) {
+        logs.add("Loading Prohory Neural Engine...")
+        delay(600)
+        logs.add("Analyzing message with AI...")
+    }
+
+    val labelIndex = suspendCoroutine<Int> { continuation ->
+        detector.classify(payloadData) { index, _ ->
+            continuation.resume(index)
+        }
+    }
+
+    withContext(Dispatchers.Main) {
+        delay(600)
+        // 🔥 Map TFLite Result (0=Safe, 1=Promo, 2=Spam, 3=Danger) to UI States (2=Safe, 3=Promo, 4=Spam, 5=Danger)
+        when (labelIndex) {
+            3 -> {
+                logs.add("DANGER: Malicious pattern found! ❌")
+                onResult(5)
             }
-
-            val vocab = loadVocabFromStorage(context, "vocab.txt")
-
-            val inputData = tokenizeInputForModel(payloadData, vocab, maxLen = 128)
-
-            val inputIds2D = Array(1) { inputData.first }
-            val attentionMask2D = Array(1) { inputData.second }
-
-            val inputs = arrayOf<Any>(inputIds2D, attentionMask2D)
-            val outputBuffer = Array(1) { FloatArray(4) }
-            val outputs = mapOf(0 to outputBuffer)
-
-            withContext(Dispatchers.Main) {
-                delay(600)
-                logs.add("Looking for hidden threats...")
+            2 -> {
+                logs.add("WARNING: Spam content detected. ⚠️")
+                onResult(4)
             }
-
-            interpreter.runForMultipleInputsOutputs(inputs, outputs)
-            val probabilities = outputBuffer[0]
-
-            var maxIndex = 0
-            var maxProb = probabilities[0]
-            for (i in 1 until probabilities.size) {
-                if (probabilities[i] > maxProb) {
-                    maxProb = probabilities[i]
-                    maxIndex = i
-                }
+            1 -> {
+                logs.add("INFO: Promotional content found. ℹ️")
+                onResult(3)
             }
-
-            withContext(Dispatchers.Main) {
-                delay(600)
-                if (maxIndex >= 2) {
-                    logs.add("WARNING: High chance of being a scam! (Confidence: ${(maxProb * 100).toInt()}%) ❌")
-                    delay(400)
-                    logs.add("RESULT: THIS MESSAGE IS DANGEROUS.")
-                    onResult(3)
-                } else {
-                    logs.add("Scan finished. No threats found. ✔")
-                    delay(400)
-                    logs.add("RESULT: THIS MESSAGE IS SAFE.")
-                    onResult(2)
-                }
-            }
-            interpreter.close()
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                logs.add("ERROR DETAILS: ${e.message}")
-                logs.add("ERROR: Local scanner failed to run.")
-                onResult(0)
+            else -> {
+                logs.add("Scan finished. Safe. ✔")
+                onResult(2)
             }
         }
     }
@@ -497,64 +478,11 @@ private fun downloadSingleFile(urlStr: String, destFile: File): Boolean {
     }
 }
 
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
 fun isInternetAvailable(context: Context): Boolean {
     val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     val network = connectivityManager.activeNetwork ?: return false
     val activeNetwork = connectivityManager.getNetworkCapabilities(network) ?: return false
     return activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-}
-
-private fun loadModelFromStorage(context: Context, modelName: String): MappedByteBuffer {
-    val file = File(context.filesDir, modelName)
-    val fileInputStream = FileInputStream(file)
-    val fileChannel = fileInputStream.channel
-    return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
-}
-
-private fun loadVocabFromStorage(context: Context, vocabName: String): Map<String, Int> {
-    val file = File(context.filesDir, vocabName)
-    val vocab = mutableMapOf<String, Int>()
-    file.bufferedReader().useLines { lines ->
-        lines.forEachIndexed { index, word -> vocab[word.trim()] = index + 1 }
-    }
-    return vocab
-}
-
-private fun tokenizeInputForModel(text: String, vocab: Map<String, Int>, maxLen: Int): Pair<IntArray, IntArray> {
-    val cleanedText = text.lowercase().trim()
-    val words = cleanedText.split(Regex("\\s+"))
-
-    val inputIds = IntArray(maxLen)
-    val attentionMask = IntArray(maxLen)
-
-    val clsId = vocab["[CLS]"] ?: 101
-    val sepId = vocab["[SEP]"] ?: 102
-    val unkId = vocab["[UNK]"] ?: 100
-
-    var index = 0
-
-    // Start Token
-    inputIds[index] = clsId
-    attentionMask[index] = 1
-    index++
-
-    for (word in words) {
-        if (index >= maxLen - 1) break // Leave room for SEP
-        inputIds[index] = vocab[word] ?: unkId
-        attentionMask[index] = 1
-        index++
-    }
-
-    // End Token
-    if (index < maxLen) {
-        inputIds[index] = sepId
-        attentionMask[index] = 1
-    }
-
-    return Pair(inputIds, attentionMask)
 }
 
 // ==========================================
@@ -599,19 +527,25 @@ fun AdvancedActiveScanningState() {
     }
 }
 
+// 🔥 UPDATED: Dynamic UI for 4 Levels
 @Composable
-fun AdvancedResultState(isSafe: Boolean) {
+fun AdvancedResultState(level: Int) {
     val infiniteTransition = rememberInfiniteTransition()
-    val color = if (isSafe) Color.Green else Color.Red
-    val icon = if (isSafe) Icons.Default.HealthAndSafety else Icons.Default.GppBad
-    val text = if (isSafe) "SAFE" else "THREAT"
+
+    val (color, icon, text) = when (level) {
+        2 -> Triple(Color.Green, Icons.Default.HealthAndSafety, "SAFE")
+        3 -> Triple(Color(0xFF3B82F6), Icons.Default.LocalOffer, "PROMO") // Blue for Promo
+        4 -> Triple(Color(0xFFFF9800), Icons.Default.ReportProblem, "SPAM") // Orange for Spam
+        5 -> Triple(Color.Red, Icons.Default.GppBad, "DANGER") // Red for Danger
+        else -> Triple(Color.DarkGray, Icons.Default.Info, "UNKNOWN")
+    }
 
     val auraScale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.4f, animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse))
     val auraAlpha by infiniteTransition.animateFloat(initialValue = 0.5f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Restart))
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(contentAlignment = Alignment.Center) {
-            Box(modifier = Modifier.size(100.dp).scale(auraScale).background(color.copy(alpha = auraAlpha), CircleShape))
+            Box(modifier = Modifier.size(100.dp).scale(if(level >= 4) auraScale else 1f).background(color.copy(alpha = if(level >= 4) auraAlpha else 0.2f), CircleShape))
             Box(modifier = Modifier.size(100.dp).background(color.copy(alpha = 0.2f), CircleShape).border(3.dp, color, CircleShape), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(50.dp))
             }

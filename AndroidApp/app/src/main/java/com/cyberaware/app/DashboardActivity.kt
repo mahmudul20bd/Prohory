@@ -2,6 +2,10 @@ package com.cyberaware.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -19,6 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.cyberaware.app.network.DashboardStats
@@ -52,24 +63,38 @@ import com.cyberaware.app.network.SystemLog
 import com.cyberaware.app.ui.theme.CyberAwareTheme
 import com.cyberaware.app.ui.theme.NeonCyan
 import com.cyberaware.app.ui.theme.NeonPurple
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 class DashboardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
+        if (isScreenshotProtected) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
+        val workRequest = PeriodicWorkRequestBuilder<LogClearWorker>(1, TimeUnit.DAYS).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "ThreatLogClearWork",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
         setContent {
             CyberAwareTheme {
                 MainIntelligenceContainer()
             }
         }
+        WifiMonitorService(this).startMonitoring()
     }
 }
 
-// Helper Function for Dynamic Time
 fun getTimeAgo(timeInMillis: Long): String {
     val diff = System.currentTimeMillis() - timeInMillis
     val mins = diff / (1000 * 60)
@@ -98,7 +123,29 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
     val myUsername = sharedPref.getString("username", "") ?: ""
     val myRole = sharedPref.getString("role", "User") ?: "User"
 
-    // Fetch Local Avatar Path
+    var isNetOn by remember { mutableStateOf(false) }
+
+    DisposableEffect(context) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { isNetOn = true }
+            override fun onLost(network: Network) { isNetOn = false }
+        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+        onDispose { connectivityManager.unregisterNetworkCallback(networkCallback) }
+    }
+
+    LaunchedEffect(isNetOn) {
+        if (isNetOn && token.isNotEmpty()) {
+            viewModel.loadDashboardData(token, myUsername, myRole)
+            viewModel.connectWebSocket(token)
+        }
+    }
+
     var localAvatarPath by remember { mutableStateOf(sharedPref.getString("avatar_path", "")) }
 
     LaunchedEffect(selectedTab, drawerState.isOpen) {
@@ -146,8 +193,6 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
         }
     }
 
-    // 🔥 INSTANT DATA REFRESH LOGIC (Added right after LaunchedEffect)
-    // যখনই ইউজার অন্য পেজ থেকে ড্যাশবোর্ডে ব্যাক করবে, এটি নতুন ডাটা লোড করবে
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -158,9 +203,7 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val userProfile by viewModel.userProfile.collectAsState()
@@ -173,8 +216,9 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
 
     val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
     val savedThreats = threatPrefs.getStringSet("quarantine_list", emptySet()) ?: emptySet()
-    val localThreatCount = savedThreats.size
 
+    // Personal Security Score Logic uses local threats
+    val localThreatCount = savedThreats.size
     val isRealTimeOn = sharedPref.getBoolean("real_time_protection", true)
     val isBiometricOn = sharedPref.getBoolean("biometric_login", true)
 
@@ -183,20 +227,40 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
     if (!isBiometricOn) scoreDeduction += 5
 
     val personalScore = (100 - scoreDeduction).coerceIn(10, 100)
+
+    // 🔥 PURE GLOBAL STATS LOGIC (As requested by user)
     val totalBlocked = stats?.blockedScams ?: 0
 
-    // Fetch Latest Threat Time for Notification
+    // DYNAMIC THREAT STATE FOR NOTIFICATION
     var latestThreatTime by remember { mutableStateOf<Long?>(null) }
+    var latestThreatType by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(savedThreats) {
         var maxTime = 0L
+        var type = "UNKNOWN"
         for (threat in savedThreats) {
             val parts = threat.split("|||")
             if (parts.size >= 3) {
                 val time = parts[2].toLongOrNull()
-                if (time != null && time > maxTime) maxTime = time
+                val message = parts[1].lowercase()
+
+                if (time != null && time > maxTime) {
+                    maxTime = time
+                    type = when {
+                        message.contains("http") || message.contains("bkash") || message.contains("nagad") || message.contains("bank") -> "DANGER"
+                        message.contains("win") || message.contains("offer") || message.contains("lottery") || message.contains("free") -> "SPAM"
+                        else -> "SPAM"
+                    }
+                }
             }
         }
-        latestThreatTime = if (maxTime > 0) maxTime else null
+        if (maxTime > 0) {
+            latestThreatTime = maxTime
+            latestThreatType = type
+        } else {
+            latestThreatTime = null
+            latestThreatType = null
+        }
     }
 
     ModalNavigationDrawer(
@@ -222,7 +286,6 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
         Scaffold(
             containerColor = Color(0xFF02040A),
             bottomBar = {
-                // 🔥 UX FIX: Hide Bottom Bar smoothly when Intelligence Archive (Tab 2) is active
                 AnimatedVisibility(
                     visible = selectedTab != 2,
                     enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -240,14 +303,17 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
                     0 -> EnterpriseHomeDashboard(
                         userName = dbUserName,
                         stats = stats,
+                        totalBlocked = totalBlocked, // Passed pure global stats
                         liveThreat = liveThreat,
                         personalScore = personalScore,
                         localThreatCount = localThreatCount,
                         isRealTimeOn = isRealTimeOn,
                         isBiometricOn = isBiometricOn,
                         latestThreatTime = latestThreatTime,
+                        latestThreatType = latestThreatType,
                         recentLogs = recentLogs,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        viewModel = viewModel
                     )
                     1 -> GlobalThreatMapScreen()
                     2 -> ThreatHistoryScreen(onBack = { selectedTab = 0 })
@@ -320,14 +386,14 @@ fun IntelligenceSidebar(
             Spacer(modifier = Modifier.height(12.dp))
 
             SidebarMenuItem("Threat Intelligence", Icons.Rounded.Storage, NeonPurple) { onNavigateToArchive() }
-            SidebarMenuItem("Scan History", Icons.Rounded.History, Color(0xFF3B82F6)) { Toast.makeText(context, "All past scans are synced.", Toast.LENGTH_SHORT).show() }
-            SidebarMenuItem("Trusted Networks", Icons.Rounded.WifiTethering, Color(0xFF10B981)) { Toast.makeText(context, "No trusted networks saved yet.", Toast.LENGTH_SHORT).show() }
-            SidebarMenuItem("Security Reports", Icons.Rounded.Analytics, Color(0xFFFF9800)) { Toast.makeText(context, "Monthly report generating...", Toast.LENGTH_SHORT).show() }
+            SidebarMenuItem("Scan History", Icons.Rounded.History, Color(0xFF3B82F6)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
+            SidebarMenuItem("Trusted Networks", Icons.Rounded.WifiTethering, Color(0xFF10B981)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
+            SidebarMenuItem("Security Reports", Icons.Rounded.Analytics, Color(0xFFFF9800)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
 
             Spacer(Modifier.weight(1f))
             Divider(color = Color.White.copy(0.05f), modifier = Modifier.padding(vertical = 16.dp))
 
-            SidebarMenuItem("Defense Settings", Icons.Rounded.Settings, Color.Gray) { onNavigateToSettings() }
+            SidebarMenuItem("Settings", Icons.Rounded.Settings, Color.Gray) { onNavigateToSettings() }
             SidebarMenuItem("Help & Support", Icons.Rounded.HelpOutline, Color.Gray) { Toast.makeText(context, "Connecting to Support...", Toast.LENGTH_SHORT).show() }
             Spacer(Modifier.height(8.dp))
 
@@ -356,30 +422,21 @@ fun SidebarMenuItem(title: String, icon: ImageVector, color: Color, onClick: () 
     }
 }
 
-
 // ==========================================
 // 🔔 DYNAMIC BELL NOTIFICATION
 // ==========================================
-// ==========================================
-// 🔔 DYNAMIC BELL NOTIFICATION (Fixed: Seen State Persistence)
-// ==========================================
 @Composable
-fun AnimatedBellNotification(latestThreatTime: Long?) {
+fun AnimatedBellNotification(latestThreatTime: Long?, latestThreatType: String?) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
 
-    // Dropdown state
     var showDropdown by remember { mutableStateOf(false) }
-
-    // Version Check Logic
     val appVersion = "3.0"
     var isNewVersion by remember { mutableStateOf(prefs.getString("current_version", "2.0") != appVersion) }
 
-    // Threat Check Logic (Check if the latest threat is NEWER than the last seen threat)
     val lastSeenThreatTime = prefs.getLong("last_seen_threat_time", 0L)
     val hasNewThreat = latestThreatTime != null && latestThreatTime > lastSeenThreatTime
 
-    // Unread logic: Unread if there is a new version OR a newly arrived threat
     var hasUnread by remember(latestThreatTime, isNewVersion, lastSeenThreatTime) {
         mutableStateOf(isNewVersion || hasNewThreat)
     }
@@ -394,11 +451,8 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
         Box(
             modifier = Modifier.size(40.dp).background(Color(0xFF1E293B), CircleShape).clip(CircleShape)
                 .clickable {
-                    // ১. ক্লিক করার সাথে সাথে লোকালি আনরিড স্টেট ফলস করে দেওয়া হলো
                     hasUnread = false
                     showDropdown = true
-
-                    // ২. পার্মানেন্টলি সেভ করে রাখা হলো যে ইউজার এই মুহূর্তের থ্রেটগুলো দেখে ফেলেছে
                     if (latestThreatTime != null) {
                         prefs.edit().putLong("last_seen_threat_time", latestThreatTime).apply()
                     }
@@ -408,7 +462,7 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
             Icon(
                 imageVector = Icons.Rounded.Notifications, contentDescription = "Alerts",
                 tint = if (hasUnread) NeonCyan else Color.Gray,
-                modifier = Modifier.rotate(if (hasUnread) rotation else 0f) // শুধু আনরিড থাকলেই কাঁপবে
+                modifier = Modifier.rotate(if (hasUnread) rotation else 0f)
             )
             if (hasUnread) {
                 Box(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(8.dp).background(Color.Red, CircleShape))
@@ -426,7 +480,6 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
                     },
                     onClick = {
                         showDropdown = false
-                        // ভার্সন আপডেট নোটিফিকেশন হাইড করার লজিক
                         prefs.edit().putString("current_version", appVersion).apply()
                         isNewVersion = false
                     },
@@ -435,14 +488,18 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
                 Divider(color = Color.DarkGray)
             }
 
-            // 🔥 FULLY DYNAMIC MALICIOUS SCAN NOTIFICATION
             DropdownMenuItem(
                 text = {
                     Column {
-                        if (latestThreatTime != null) {
-                            Text("THREAT INTERCEPTED", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        if (latestThreatTime != null && latestThreatType != null) {
+                            val isDanger = latestThreatType == "DANGER"
+                            val notifColor = if (isDanger) Color.Red else Color(0xFFFF9800)
+                            val title = if (isDanger) "DANGER INTERCEPTED" else "SPAM INTERCEPTED"
+                            val message = if (isDanger) "A malicious scam SMS was blocked." else "A suspicious spam SMS was blocked."
+
+                            Text(title, color = notifColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             val timeText = getTimeAgo(latestThreatTime)
-                            Text("A malicious artifact was blocked $timeText.", color = Color.White, fontSize = 12.sp, lineHeight = 16.sp)
+                            Text("$message ($timeText)", color = Color.White, fontSize = 12.sp, lineHeight = 16.sp)
                         } else {
                             Text("SYSTEM SECURE", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             Text("System is monitoring actively. No recent threats.", color = Color.White, fontSize = 12.sp, lineHeight = 16.sp)
@@ -451,8 +508,12 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
                 },
                 onClick = { showDropdown = false },
                 leadingIcon = {
-                    if (latestThreatTime != null) Icon(Icons.Rounded.WarningAmber, null, tint = Color.Red)
-                    else Icon(Icons.Rounded.Security, null, tint = Color(0xFF10B981))
+                    if (latestThreatTime != null && latestThreatType != null) {
+                        val isDanger = latestThreatType == "DANGER"
+                        Icon(if(isDanger) Icons.Rounded.GppBad else Icons.Rounded.WarningAmber, null, tint = if (isDanger) Color.Red else Color(0xFFFF9800))
+                    } else {
+                        Icon(Icons.Rounded.Security, null, tint = Color(0xFF10B981))
+                    }
                 }
             )
         }
@@ -460,7 +521,7 @@ fun AnimatedBellNotification(latestThreatTime: Long?) {
 }
 
 @Composable
-fun EnterpriseTopHeader(name: String, greeting: String, hour: Int, latestThreatTime: Long?, onMenuClick: () -> Unit) {
+fun EnterpriseTopHeader(name: String, greeting: String, hour: Int, latestThreatTime: Long?, latestThreatType: String?, onMenuClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onMenuClick) { Icon(Icons.Rounded.Menu, null, tint = Color.White) }
 
@@ -477,17 +538,13 @@ fun EnterpriseTopHeader(name: String, greeting: String, hour: Int, latestThreatT
                 }
             }
         }
-        AnimatedBellNotification(latestThreatTime)
+        AnimatedBellNotification(latestThreatTime, latestThreatType)
     }
 }
 
 // ==========================================
 // 📱 BOTTOM NAVIGATION
 // ==========================================
-// ==========================================
-// 📱 BOTTOM NAVIGATION
-// ==========================================
-
 @Composable
 fun CyberBottomBar(selected: Int, onSelect: (Int) -> Unit) {
     val context = LocalContext.current
@@ -498,23 +555,15 @@ fun CyberBottomBar(selected: Int, onSelect: (Int) -> Unit) {
         border = BorderStroke(1.dp, Color.White.copy(0.1f))
     ) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-
-            // Home (Tab 0)
             IconButton(onClick = { onSelect(0) }) {
                 Icon(Icons.Rounded.Home, null, tint = if(selected == 0) NeonCyan else Color.Gray)
             }
-
-            // Map (Tab 1)
             IconButton(onClick = { onSelect(1) }) {
                 Icon(Icons.Rounded.Public, null, tint = if(selected == 1) NeonCyan else Color.Gray)
             }
-
-            // 🔥 Chat Activity (Intent)
             IconButton(onClick = { context.startActivity(Intent(context, ExpertChatActivity::class.java)) }) {
                 Icon(Icons.Rounded.ChatBubble, contentDescription = "Support Chat", tint = Color.Gray)
             }
-
-            // 🔥 Settings (Tab 3 - Opens instantly with bottom bar visible)
             IconButton(onClick = { onSelect(3) }) {
                 Icon(Icons.Rounded.Settings, null, tint = if(selected == 3) NeonCyan else Color.Gray)
             }
@@ -522,26 +571,38 @@ fun CyberBottomBar(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-
 // ==========================================
 // DASHBOARD CONTENT COMPONENTS
 // ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnterpriseHomeDashboard(
     userName: String,
     stats: DashboardStats?,
+    totalBlocked: Int, // Pure Global API Stat
     liveThreat: Float,
     personalScore: Int,
     localThreatCount: Int,
     isRealTimeOn: Boolean,
     isBiometricOn: Boolean,
     latestThreatTime: Long?,
+    latestThreatType: String?,
     recentLogs: List<SystemLog>,
-    onMenuClick: () -> Unit
+    onMenuClick: () -> Unit,
+    viewModel: DashboardViewModel
 ) {
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     var showRiskModal by remember { mutableStateOf(false) }
+
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+    val scope = rememberCoroutineScope()
+
+    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    val token = sharedPref.getString("auth_token", "") ?: ""
+    val myUsername = sharedPref.getString("username", "") ?: ""
+    val myRole = sharedPref.getString("role", "User") ?: "User"
 
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val greeting = when (hour) {
@@ -550,72 +611,146 @@ fun EnterpriseHomeDashboard(
         else -> "Good Evening"
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(scrollState), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(16.dp))
-        EnterpriseTopHeader(userName, greeting, hour, latestThreatTime, onMenuClick)
-        Spacer(Modifier.height(25.dp))
-        PersonalSecurityCore(personalScore, liveThreat) { showRiskModal = true }
-        Spacer(Modifier.height(25.dp))
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                isRefreshing = true
+                if (token.isNotEmpty()) {
+                    viewModel.loadDashboardData(token, myUsername, myRole)
+                }
+                delay(1500)
+                isRefreshing = false
+                Toast.makeText(context, "Intelligence Data Synced ✔", Toast.LENGTH_SHORT).show()
+            }
+        },
+        state = pullRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pullRefreshState,
+                isRefreshing = isRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = Color(0xFF131C2B),
+                color = NeonCyan
+            )
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(scrollState), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(16.dp))
+            EnterpriseTopHeader(userName, greeting, hour, latestThreatTime, latestThreatType, onMenuClick)
+            Spacer(Modifier.height(25.dp))
+            PersonalSecurityCore(personalScore, liveThreat) { showRiskModal = true }
+            Spacer(Modifier.height(25.dp))
 
-        val totalBlocked = stats?.blockedScams ?: 0
-        SectionHeader("SYSTEM INTELLIGENCE")
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SmartStatCard("Scans", "${stats?.totalScans ?: 0}", Icons.Rounded.Analytics, NeonCyan, Modifier.weight(1f).height(95.dp))
-            SmartStatCard("Blocked", "$totalBlocked", Icons.Rounded.GppBad, Color(0xFF10B981), Modifier.weight(1f).height(95.dp))
-            SmartStatCard("Critical", "${totalBlocked / 4}", Icons.Rounded.WarningAmber, Color(0xFFEF4444), Modifier.weight(1f).height(95.dp))
+            SectionHeader("SYSTEM INTELLIGENCE")
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 🔥 UI FIX: Now shows purely the global stats from backend API
+                SmartStatCard("Scans", "${stats?.totalScans ?: 0}", Icons.Rounded.Analytics, NeonCyan, Modifier.weight(1f).height(95.dp))
+                SmartStatCard("Spam", "$totalBlocked", Icons.Rounded.ReportProblem, Color(0xFFFF9800), Modifier.weight(1f).height(95.dp))
+                SmartStatCard("Danger", "${totalBlocked / 4}", Icons.Rounded.GppBad, Color.Red, Modifier.weight(1f).height(95.dp))
+            }
+
+            Spacer(Modifier.height(25.dp))
+            SectionHeader("DEFENSE MODULES")
+            Spacer(Modifier.height(12.dp))
+            ModuleGrid(context)
+
+            Spacer(Modifier.height(25.dp))
+            SectionHeader("LIVE THREAT ACTIVITY")
+            Spacer(Modifier.height(12.dp))
+            AdvancedThreatRadar(liveThreat)
+
+            Spacer(Modifier.height(25.dp))
+            SectionHeader("ACTIVE THREAT PATTERNS")
+            Spacer(Modifier.height(12.dp))
+            DynamicThreatIntelligencePanel(recentLogs)
+
+            Spacer(Modifier.height(25.dp))
+            SectionHeader("RECENT SYSTEM LOGS")
+            Spacer(Modifier.height(12.dp))
+            RecentLogsSection(recentLogs)
+
+            Spacer(Modifier.height(100.dp))
         }
-
-        Spacer(Modifier.height(25.dp))
-        SectionHeader("DEFENSE MODULES")
-        Spacer(Modifier.height(12.dp))
-        ModuleGrid(context)
-
-        Spacer(Modifier.height(25.dp))
-        SectionHeader("LIVE THREAT ACTIVITY")
-        Spacer(Modifier.height(12.dp))
-        AdvancedThreatRadar(liveThreat)
-
-        Spacer(Modifier.height(25.dp))
-        SectionHeader("ACTIVE THREAT PATTERNS")
-        Spacer(Modifier.height(12.dp))
-        DynamicThreatIntelligencePanel(recentLogs)
-
-        Spacer(Modifier.height(25.dp))
-        SectionHeader("RECENT SYSTEM LOGS")
-        Spacer(Modifier.height(12.dp))
-        RecentLogsSection(recentLogs)
-
-        Spacer(Modifier.height(100.dp))
     }
 
-    // 🔥 ADVANCED RISK BREAKDOWN MODAL
     if (showRiskModal) {
         RiskBreakdownModal(personalScore, localThreatCount, isRealTimeOn, isBiometricOn) { showRiskModal = false }
     }
 }
 
-// ... (AdvancedThreatRadar, PersonalSecurityCore, DynamicThreatIntelligencePanel, IntelligenceItem, SmartStatCard, AdvancedCyberBackground remain unchanged from previous correct implementation)
-
+// 🔥 CRASH FIX & JUMPING BUG FIX (100% Stable Version)
 @Composable
 fun AdvancedThreatRadar(liveThreat: Float) {
-    val spikeData = remember { mutableStateListOf<Float>().apply { repeat(20) { add(0.1f) } } }
-    LaunchedEffect(liveThreat) { spikeData.removeAt(0); spikeData.add(liveThreat) }
+    val spikeData = remember {
+        mutableStateListOf<Float>().apply {
+            val baseValue = if (liveThreat > 0.05f) liveThreat else 0.1f
+            repeat(20) { add(baseValue) }
+        }
+    }
 
-    Surface(modifier = Modifier.fillMaxWidth().height(160.dp), shape = RoundedCornerShape(20.dp), color = Color(0xFF0D121D), border = BorderStroke(1.dp, Color.White.copy(0.05f))) {
+    var lastValidValue by remember { mutableFloatStateOf(if (liveThreat > 0.05f) liveThreat else 0.1f) }
+
+    LaunchedEffect(liveThreat) {
+        if (liveThreat > 0.05f) {
+            lastValidValue = liveThreat
+        }
+    }
+
+    LaunchedEffect(lastValidValue) {
+        while(true) {
+            delay(400)
+
+            val jitter = (Math.random().toFloat() * 0.08f) - 0.04f
+            val lastPoint = if (spikeData.isNotEmpty()) spikeData.last() else lastValidValue
+
+            val targetNext = (lastValidValue + jitter).coerceIn(0.05f, 1f)
+            val nextValue = lastPoint + (targetNext - lastPoint) * 0.4f
+
+            if (spikeData.size >= 20) {
+                spikeData.removeAt(0)
+            }
+            spikeData.add(nextValue)
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(160.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF0D121D),
+        border = BorderStroke(1.dp, Color.White.copy(0.05f))
+    ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Canvas(modifier = Modifier.fillMaxSize().padding(top = 20.dp, bottom = 10.dp, start = 10.dp, end = 10.dp)) {
                 val gridColor = Color.DarkGray.copy(alpha = 0.3f)
-                for (i in 1..4) { val y = size.height * (i / 5f); drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))) }
+                for (i in 1..4) {
+                    val y = size.height * (i / 5f)
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)))
+                }
 
-                val path = Path(); val fillPath = Path(); val step = size.width / (spikeData.size - 1)
-                path.moveTo(0f, size.height * (1f - spikeData[0])); fillPath.moveTo(0f, size.height); fillPath.lineTo(0f, size.height * (1f - spikeData[0]))
+                val path = Path()
+                val fillPath = Path()
+                val step = size.width / (if (spikeData.size > 1) spikeData.size - 1 else 1)
 
-                for (i in 1 until spikeData.size) { val x = i * step; val y = size.height * (1f - spikeData[i]); path.lineTo(x, y); fillPath.lineTo(x, y) }
-                fillPath.lineTo(size.width, size.height); fillPath.close()
+                if (spikeData.isNotEmpty()) {
+                    path.moveTo(0f, size.height * (1f - spikeData[0]))
+                    fillPath.moveTo(0f, size.height)
+                    fillPath.lineTo(0f, size.height * (1f - spikeData[0]))
 
-                drawPath(path = fillPath, brush = Brush.verticalGradient(listOf(NeonPurple.copy(alpha = 0.6f), Color.Transparent)))
-                drawPath(path = path, brush = Brush.horizontalGradient(listOf(NeonCyan, NeonPurple, Color.Red)), style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    for (i in 1 until spikeData.size) {
+                        val x = i * step
+                        val y = size.height * (1f - spikeData[i])
+                        path.lineTo(x, y)
+                        fillPath.lineTo(x, y)
+                    }
+                    fillPath.lineTo(size.width, size.height)
+                    fillPath.close()
+
+                    drawPath(path = fillPath, brush = Brush.verticalGradient(listOf(NeonPurple.copy(alpha = 0.6f), Color.Transparent)))
+                    drawPath(path = path, brush = Brush.horizontalGradient(listOf(NeonCyan, NeonPurple, Color.Red)), style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                }
             }
             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("REAL-TIME", color = NeonCyan, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
@@ -659,6 +794,9 @@ fun PersonalSecurityCore(score: Int, liveThreat: Float, onClick: () -> Unit) {
     }
 }
 
+// ==========================================
+// 🔥 DYNAMIC THREAT INTELLIGENCE
+// ==========================================
 @Composable
 fun DynamicThreatIntelligencePanel(recentLogs: List<SystemLog>) {
     val context = LocalContext.current
@@ -666,14 +804,25 @@ fun DynamicThreatIntelligencePanel(recentLogs: List<SystemLog>) {
         val patterns = mutableListOf<Triple<String, String, Color>>()
         val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
         val savedThreats = threatPrefs.getStringSet("quarantine_list", emptySet()) ?: emptySet()
+
         if (savedThreats.isNotEmpty()) {
             val latestSpam = savedThreats.lastOrNull()?.split("|||")
             if (latestSpam != null && latestSpam.size >= 2) patterns.add(Triple("Spam from: ${latestSpam[0]}", "LOCAL SMS", Color(0xFFFF9800)))
         }
-        val serverThreats = recentLogs.filter { it.actionType.uppercase() in listOf("THREAT", "SCAM", "REPORT", "WARNING") }
+
+        val serverThreats = recentLogs.filter { log ->
+            val type = log.actionType.uppercase()
+            type.contains("DANGER") || type.contains("SPAM") || type.contains("PROMO") || type.contains("THREAT") || type.contains("SCAM") || type.contains("REPORT") || type.contains("WARNING")
+        }
+
         serverThreats.forEach { log ->
             val type = log.actionType.uppercase()
-            val color = if (type.contains("PHISHING") || type.contains("SCAM")) Color.Red else Color.Yellow
+            val color = when {
+                type.contains("DANGER") || type.contains("SCAM") || type.contains("PHISHING") || type.contains("THREAT") -> Color.Red
+                type.contains("SPAM") || type.contains("WARNING") -> Color(0xFFFF9800)
+                type.contains("PROMO") -> Color(0xFF3B82F6)
+                else -> Color.Green
+            }
             patterns.add(Triple(log.details, "CLOUD $type", color))
         }
         patterns.take(3)
@@ -719,16 +868,17 @@ fun SmartStatCard(title: String, value: String, icon: ImageVector, color: Color,
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, // 🔥 এখানেই লেফট থেকে সেন্টারে আনা হয়েছে
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(22.dp)) // আইকনটি একটু বড় করা হয়েছে দেখতে ভালো লাগার জন্য
+            Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
             Spacer(Modifier.height(6.dp))
             Text(value, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
             Text(title, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
+
 @Composable
 fun AdvancedCyberBackground(score: Int) {
     val infiniteTransition = rememberInfiniteTransition()
@@ -738,7 +888,6 @@ fun AdvancedCyberBackground(score: Int) {
     Canvas(Modifier.fillMaxSize()) { drawCircle(Brush.radialGradient(listOf(bgColor.copy(alpha), Color.Transparent), center = Offset(size.width * 0.5f, size.height * 0.3f), radius = 1200f)) }
 }
 
-// 🔥 ADVANCED RISK BREAKDOWN MODAL UI
 @Composable
 fun RiskBreakdownModal(score: Int, threats: Int, isRealTimeOn: Boolean, isBiometricOn: Boolean, onDismiss: () -> Unit) {
     AlertDialog(
@@ -808,9 +957,19 @@ fun RecentLogsSection(logs: List<SystemLog>) {
             Text("No recent activity found. Syncing...", color = Color.Gray, fontSize = 12.sp)
         } else {
             logs.forEach { log ->
-                val statusColor = when (log.actionType.uppercase()) { "LOGIN", "REGISTRATION" -> Color.Cyan; "REPORT", "THREAT", "SCAM" -> Color.Red; else -> Color.Green }
+                val typeUpper = log.actionType.uppercase()
+
+                val statusColor = when {
+                    typeUpper in listOf("LOGIN", "REGISTRATION") -> Color.Cyan
+                    typeUpper.contains("DANGER") || typeUpper.contains("THREAT") || typeUpper.contains("SCAM") || typeUpper.contains("PHISHING") -> Color.Red
+                    typeUpper.contains("SPAM") || typeUpper.contains("WARNING") -> Color(0xFFFF9800)
+                    typeUpper.contains("PROMO") -> Color(0xFF3B82F6)
+                    else -> Color.Green
+                }
+
                 val time = log.timestamp?.take(10) ?: "Just now"
                 val performer = if (log.username == null || log.username == "null") "System" else log.username
+
                 Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF131C2B), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color.White.copy(0.05f))) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(10.dp).background(statusColor, CircleShape))

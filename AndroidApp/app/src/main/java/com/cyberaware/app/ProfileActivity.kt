@@ -1,5 +1,6 @@
 package com.cyberaware.app
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +25,14 @@ import com.cyberaware.app.ui.theme.NeonCyan
 class ProfileActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
+        if (isScreenshotProtected) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
         setContent {
             CyberAwareTheme {
                 ProfileScreen(onBack = { finish() })

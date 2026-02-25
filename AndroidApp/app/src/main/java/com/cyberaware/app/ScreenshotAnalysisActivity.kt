@@ -59,17 +59,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import org.tensorflow.lite.Interpreter
-import java.io.File
-import java.io.FileInputStream
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import java.util.UUID
 
 data class ThreatInsight(val icon: ImageVector, val title: String, val desc: String, val color: Color)
 
 class ScreenshotAnalysisActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
+        if (isScreenshotProtected) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
         setContent {
             CyberAwareTheme {
                 OcrScannerScreen(onBack = { finish() })
@@ -85,7 +91,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // 🔥 UX FIX: Auto-Scroll State for Terminal
     val logListState = rememberLazyListState()
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -93,11 +98,11 @@ fun OcrScannerScreen(onBack: () -> Unit) {
     var extractedPhone by remember { mutableStateOf<String?>(null) }
     val scanLogs = remember { mutableStateListOf<String>() }
 
+    // scanState: 0=Idle, 1=Scanning, 2=Safe, 3=Promo, 4=Spam, 5=Danger
     var scanState by remember { mutableIntStateOf(0) }
     var dynamicRiskScore by remember { mutableIntStateOf(0) }
     var realTimeInsights by remember { mutableStateOf<List<ThreatInsight>>(emptyList()) }
 
-    // 🔥 Auto-Scroll Logic: Smooth scrolling for small screens
     LaunchedEffect(scanLogs.size) {
         if (scanLogs.isNotEmpty()) {
             logListState.animateScrollToItem(scanLogs.size - 1)
@@ -126,7 +131,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Header - Simplified for Users
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
                 Spacer(modifier = Modifier.width(8.dp))
@@ -152,7 +156,8 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                     Button(
                         onClick = {
                             if (selectedImageUri == null) {
-                                Toast.makeText(context, "Please upload a screenshot first!", Toast.LENGTH_SHORT).show()
+                                // 🔥 FIX: Button Click launches Gallery
+                                photoPickerLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             } else {
                                 scanState = 1
                                 scanLogs.clear()
@@ -162,31 +167,38 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                                         extractedPhone = phone
                                         scanState = resultState
 
-                                        if (resultState == 4) {
-                                            dynamicRiskScore = 85 + (0..14).random()
-                                            val insights = mutableListOf<ThreatInsight>()
-                                            val lowerText = text.lowercase()
+                                        // 🔥 Dynamic Insights Based on 4 Classes
+                                        val insights = mutableListOf<ThreatInsight>()
+                                        val lowerText = text.lowercase()
 
-                                            if (lowerText.contains("http") || lowerText.contains("www") || lowerText.contains(".com") || lowerText.contains("bit.ly")) {
-                                                insights.add(ThreatInsight(Icons.Rounded.LinkOff, "Suspicious Link", "URL pattern commonly used in phishing campaigns detected.", Color.Red))
+                                        when (resultState) {
+                                            5 -> { // DANGER
+                                                dynamicRiskScore = 85 + (0..14).random() // 85% - 99%
+                                                if (lowerText.contains("bkash") || lowerText.contains("nagad") || lowerText.contains("bank") || lowerText.contains("pin")) {
+                                                    insights.add(ThreatInsight(Icons.Rounded.AccountBalance, "Financial Scam", "Attempts to mimic financial institutions found.", Color.Red))
+                                                }
+                                                if (lowerText.contains("http") || lowerText.contains("www") || lowerText.contains(".com") || lowerText.contains("bit.ly")) {
+                                                    insights.add(ThreatInsight(Icons.Rounded.LinkOff, "Phishing Link", "Dangerous URL designed to steal credentials.", Color.Red))
+                                                }
+                                                if (insights.isEmpty()) insights.add(ThreatInsight(Icons.Rounded.Warning, "Malicious Content", "AI detected patterns matching known malware/scams.", Color.Red))
                                             }
-                                            if (lowerText.contains("bkash") || lowerText.contains("nagad") || lowerText.contains("bank") || lowerText.contains("pin")) {
-                                                insights.add(ThreatInsight(Icons.Rounded.AccountBalance, "Financial Scam", "Attempts to mimic financial institutions found.", Color.Red))
+                                            4 -> { // SPAM
+                                                dynamicRiskScore = 50 + (0..20).random() // 50% - 70%
+                                                insights.add(ThreatInsight(Icons.Rounded.ReportProblem, "Spam Message", "Unsolicited or repetitive message detected.", Color(0xFFFF9800)))
+                                                if (lowerText.contains("free") || lowerText.contains("win") || lowerText.contains("lottery")) {
+                                                    insights.add(ThreatInsight(Icons.Rounded.CardGiftcard, "Fake Reward", "Common spam tactic using false promises.", Color(0xFFFF9800)))
+                                                }
                                             }
-                                            if (lowerText.contains("free") || lowerText.contains("win") || lowerText.contains("offer") || lowerText.contains("লটারি") || lowerText.contains("অফার")) {
-                                                insights.add(ThreatInsight(Icons.Rounded.CardGiftcard, "Fake Reward", "Psychological manipulation via fake rewards detected.", Color(0xFFFF9800)))
+                                            3 -> { // PROMO
+                                                dynamicRiskScore = 15 + (0..15).random() // 15% - 30%
+                                                insights.add(ThreatInsight(Icons.Rounded.LocalOffer, "Promotional Content", "Message appears to be marketing or advertisement.", Color(0xFF3B82F6)))
                                             }
-                                            if (insights.isEmpty()) {
-                                                insights.add(ThreatInsight(Icons.Rounded.Warning, "Malicious Content", "AI detected patterns matching known malware/scams.", Color.Red))
+                                            2 -> { // SAFE
+                                                dynamicRiskScore = (1..10).random() // 1% - 10%
+                                                insights.add(ThreatInsight(Icons.Rounded.Verified, "Safe Image", "No urgent, manipulative, or malicious language detected.", Color.Green))
                                             }
-                                            realTimeInsights = insights
-
-                                        } else if (resultState == 3) {
-                                            dynamicRiskScore = (1..15).random()
-                                            realTimeInsights = listOf(
-                                                ThreatInsight(Icons.Rounded.Verified, "Safe Image", "No urgent or manipulative language detected.", Color.Green)
-                                            )
                                         }
+                                        realTimeInsights = insights
                                     }
                                 }
                             }
@@ -198,15 +210,15 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Text(if (selectedImageUri == null) "SELECT IMAGE" else "SCAN IMAGE", color = Color.White, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
-                } else if (scanState in 1..2) {
+                } else if (scanState == 1) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(20.dp)) {
                         CircularProgressIndicator(color = NeonCyan, strokeWidth = 3.dp, modifier = Modifier.size(40.dp))
                         Spacer(Modifier.height(16.dp))
-                        Text(if (scanState == 1) "Reading text from image..." else "Checking threats securely...", color = NeonCyan, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                        Text("Reading text & checking threats...", color = NeonCyan, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                     }
                 }
 
-                AnimatedVisibility(visible = scanState >= 3) {
+                AnimatedVisibility(visible = scanState >= 2) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Spacer(Modifier.height(10.dp))
                         AiThreatCoreMeter(scanState, dynamicRiskScore)
@@ -214,7 +226,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                         ThreatBreakdownCard(realTimeInsights)
                         Spacer(Modifier.height(20.dp))
 
-                        // 🔥 Smart Block Action Center
                         ActionCenter(scanState, extractedPhone)
 
                         Button(
@@ -252,7 +263,8 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                             items(scanLogs) { log ->
                                 val textColor = when {
                                     log.contains("DANGER") || log.contains("❌") || log.contains("ERROR") -> Color.Red
-                                    log.contains("WARNING") || log.contains("Phone") -> Color.Yellow
+                                    log.contains("SPAM") || log.contains("WARNING") -> Color(0xFFFF9800)
+                                    log.contains("PROMO") -> Color(0xFF3B82F6)
                                     log.contains("✔") || log.contains("SAFE") -> Color.Green
                                     else -> NeonCyan
                                 }
@@ -291,13 +303,12 @@ suspend fun runOcrAndAiAnalysis(
             val result = recognizer.process(image).await()
             extractedText = result.text
 
-            // 🔥 SMARTER PHONE REGEX: ignores spaces and formats to capture actual numbers
             val textWithoutSpaces = extractedText.replace("\\s+".toRegex(), "")
             val phoneRegex = Regex("(?:\\+88|88)?(01[3-9]\\d{8})")
             val phoneMatch = phoneRegex.find(textWithoutSpaces)
 
             if (phoneMatch != null) {
-                detectedPhone = phoneMatch.groupValues[1] // Extracts just the 01xxxxxxxxx part
+                detectedPhone = phoneMatch.groupValues[1]
             }
 
             withContext(Dispatchers.Main) {
@@ -321,7 +332,6 @@ suspend fun runOcrAndAiAnalysis(
 
     if (extractedText.trim().isEmpty()) return
 
-    onResult(2, extractedText, detectedPhone)
     delay(800)
     logs.add("Analyzing text for threats...")
     delay(500)
@@ -347,7 +357,7 @@ suspend fun runServerOcrAiAnalysis(context: Context, payloadData: String, phone:
 
     var deviceId = sharedPref.getString("anonymous_device_id", null)
     if (deviceId == null) {
-        deviceId = java.util.UUID.randomUUID().toString()
+        deviceId = UUID.randomUUID().toString()
         sharedPref.edit().putString("anonymous_device_id", deviceId).apply()
     }
 
@@ -370,18 +380,26 @@ suspend fun runServerOcrAiAnalysis(context: Context, payloadData: String, phone:
                     logs.add("Cloud AI is checking patterns...")
                     delay(1500)
 
-                    // 🔥 Uses Actual Server Result
                     val resultBody = response.body() as? Map<*, *>
                     val aiResult = resultBody?.get("aiResult")?.toString()?.uppercase() ?: "SAFE"
 
-                    val isSuspicious = aiResult.contains("DANGER") || aiResult.contains("SPAM") || aiResult.contains("SCAM")
-
-                    if(isSuspicious) {
-                        logs.add("DANGER: Malicious intent detected! ❌")
-                        onResult(4, payloadData, phone)
-                    } else {
-                        logs.add("Scan finished. No threats found. ✔")
-                        onResult(3, payloadData, phone)
+                    when {
+                        aiResult.contains("DANGER") || aiResult.contains("SCAM") || aiResult.contains("PHISHING") -> {
+                            logs.add("DANGER: Malicious intent detected! ❌")
+                            onResult(5, payloadData, phone)
+                        }
+                        aiResult.contains("SPAM") -> {
+                            logs.add("WARNING: Spam content detected. ⚠️")
+                            onResult(4, payloadData, phone)
+                        }
+                        aiResult.contains("PROMO") -> {
+                            logs.add("INFO: Promotional content found. ℹ️")
+                            onResult(3, payloadData, phone)
+                        }
+                        else -> {
+                            logs.add("Scan finished. No threats found. ✔")
+                            onResult(2, payloadData, phone)
+                        }
                     }
                 } else {
                     logs.add("ERROR: Server rejected the request.")
@@ -398,97 +416,47 @@ suspend fun runServerOcrAiAnalysis(context: Context, payloadData: String, phone:
 }
 
 // ==========================================
-// OFFLINE LOCAL TFLITE LOGIC (FIXED SHAPE & INT ARRAY)
+// OFFLINE LOCAL TFLITE LOGIC (USES SpamDetector.kt)
 // ==========================================
 suspend fun runLocalOcrTFLiteAnalysis(context: Context, payloadData: String, phone: String?, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int, String, String?) -> Unit) {
     logs.add("No internet. Using offline AI mode...")
     delay(400)
 
-    withContext(Dispatchers.IO) {
-        try {
-            val tfliteModel = loadOcrModelFromStorage(context, "cyberaware_model.tflite")
-            val interpreter = Interpreter(tfliteModel)
-            val vocab = loadOcrVocabFromStorage(context, "vocab.txt")
+    val detector = SpamDetector.getInstance(context)
 
-            // 🔥 TFLITE FIX: Changed to IntArray (INT32) and Length 128
-            val inputData = tokenizeOcrInputForModel(payloadData, vocab, maxLen = 128)
+    withContext(Dispatchers.Main) {
+        logs.add("Loading Prohory Neural Engine...")
+        delay(600)
+        logs.add("Running Neural Inference locally...")
+    }
 
-            val inputIds2D = Array(1) { inputData.first }
-            val attentionMask2D = Array(1) { inputData.second }
+    val labelIndex = suspendCoroutine<Int> { continuation ->
+        detector.classify(payloadData) { index, _ ->
+            continuation.resume(index)
+        }
+    }
 
-            val inputs = arrayOf<Any>(inputIds2D, attentionMask2D)
-            val outputBuffer = Array(1) { FloatArray(4) }
-            val outputs = mapOf(0 to outputBuffer)
-
-            withContext(Dispatchers.Main) {
-                delay(800)
-                logs.add("Running Neural Inference locally...")
+    withContext(Dispatchers.Main) {
+        delay(600)
+        when (labelIndex) {
+            3 -> {
+                logs.add("DANGER: Malicious pattern found! ❌")
+                onResult(5, payloadData, phone)
             }
-
-            interpreter.runForMultipleInputsOutputs(inputs, outputs)
-            val probabilities = outputBuffer[0]
-
-            var maxIndex = 0
-            var maxProb = probabilities[0]
-            for (i in 1 until probabilities.size) {
-                if (probabilities[i] > maxProb) {
-                    maxProb = probabilities[i]
-                    maxIndex = i
-                }
+            2 -> {
+                logs.add("WARNING: Spam content detected. ⚠️")
+                onResult(4, payloadData, phone)
             }
-
-            withContext(Dispatchers.Main) {
-                delay(600)
-                if (maxIndex >= 2) {
-                    logs.add("DANGER: High threat probability (${(maxProb * 100).toInt()}%) ❌")
-                    onResult(4, payloadData, phone)
-                } else {
-                    logs.add("Scan finished. Safe. ✔")
-                    onResult(3, payloadData, phone)
-                }
+            1 -> {
+                logs.add("INFO: Promotional content found. ℹ️")
+                onResult(3, payloadData, phone)
             }
-            interpreter.close()
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                logs.add("ERROR DETAILS: ${e.message}")
-                logs.add("ERROR: Local AI Model Failed.")
-                onResult(0, payloadData, phone)
+            else -> {
+                logs.add("Scan finished. Safe. ✔")
+                onResult(2, payloadData, phone)
             }
         }
     }
-}
-
-// 🔥 HELPER FIX: Returns IntArray Pair (INT32) matching [1, 128] shape
-private fun tokenizeOcrInputForModel(text: String, vocab: Map<String, Int>, maxLen: Int): Pair<IntArray, IntArray> {
-    val cleanedText = text.lowercase().trim()
-    val words = cleanedText.split(Regex("\\s+"))
-
-    val inputIds = IntArray(maxLen)
-    val attentionMask = IntArray(maxLen)
-
-    val clsId = vocab["[CLS]"] ?: 101
-    val sepId = vocab["[SEP]"] ?: 102
-    val unkId = vocab["[UNK]"] ?: 100
-
-    var index = 0
-
-    inputIds[index] = clsId
-    attentionMask[index] = 1
-    index++
-
-    for (word in words) {
-        if (index >= maxLen - 1) break
-        inputIds[index] = vocab[word] ?: unkId
-        attentionMask[index] = 1
-        index++
-    }
-
-    if (index < maxLen) {
-        inputIds[index] = sepId
-        attentionMask[index] = 1
-    }
-
-    return Pair(inputIds, attentionMask)
 }
 
 fun isInternetAvail(context: Context): Boolean {
@@ -497,22 +465,6 @@ fun isInternetAvail(context: Context): Boolean {
     val activeNetwork = connectivityManager.getNetworkCapabilities(network) ?: return false
     return activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
 }
-
-private fun loadOcrModelFromStorage(context: Context, modelName: String): MappedByteBuffer {
-    val file = File(context.filesDir, modelName)
-    val fileInputStream = FileInputStream(file)
-    return fileInputStream.channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
-}
-
-private fun loadOcrVocabFromStorage(context: Context, vocabName: String): Map<String, Int> {
-    val file = File(context.filesDir, vocabName)
-    val vocab = mutableMapOf<String, Int>()
-    file.bufferedReader().useLines { lines ->
-        lines.forEachIndexed { index, word -> vocab[word.trim()] = index + 1 }
-    }
-    return vocab
-}
-
 
 // ==========================================
 // UI COMPONENTS
@@ -524,9 +476,11 @@ fun ImageIntelligenceCanvas(uri: Uri?, scanState: Int, onClick: () -> Unit) {
 
     val borderColor = when (scanState) {
         0 -> NeonCyan.copy(alpha = pulseAlpha)
-        1, 2 -> NeonPurple
-        3 -> Color.Green
-        4 -> Color.Red
+        1 -> NeonPurple
+        2 -> Color.Green
+        3 -> Color(0xFF3B82F6) // Promo
+        4 -> Color(0xFFFF9800) // Spam
+        5 -> Color.Red // Danger
         else -> Color.DarkGray
     }
 
@@ -545,8 +499,8 @@ fun ImageIntelligenceCanvas(uri: Uri?, scanState: Int, onClick: () -> Unit) {
                     Text("We detect phishing, scam links & fake offers.", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
                 }
             } else {
-                AsyncImage(model = uri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = if (scanState in 1..2) 0.4f else 1f)
-                if (scanState in 1..2) {
+                AsyncImage(model = uri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = if (scanState == 1) 0.4f else 1f)
+                if (scanState == 1) {
                     CyberLaserScanner()
                     Text("SCANNING...", color = NeonPurple, fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 4.sp, modifier = Modifier.background(Color.Black.copy(0.7f), RoundedCornerShape(4.dp)).padding(8.dp))
                 }
@@ -561,13 +515,15 @@ fun AiThreatCoreMeter(state: Int, score: Int) {
     val infiniteTransition = rememberInfiniteTransition()
     val pulse by infiniteTransition.animateFloat(1f, 1.1f, infiniteRepeatable(tween(1000), RepeatMode.Reverse))
 
-    val (color, title, subtitle) = if (state == 3) {
-        Triple(Color.Green, "SAFE", "No threats detected")
-    } else {
-        Triple(Color.Red, "HIGH RISK", "Malicious pattern found")
+    val (color, title, subtitle) = when (state) {
+        2 -> Triple(Color.Green, "SAFE", "No threats detected")
+        3 -> Triple(Color(0xFF3B82F6), "PROMO", "Promotional message")
+        4 -> Triple(Color(0xFFFF9800), "SPAM", "Suspicious spam content")
+        5 -> Triple(Color.Red, "DANGER", "Malicious pattern found")
+        else -> Triple(Color.DarkGray, "UNKNOWN", "")
     }
 
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp).scale(if (state == 4) pulse else 1f)) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp).scale(if (state >= 4) pulse else 1f)) {
         Canvas(modifier = Modifier.size(160.dp)) {
             drawArc(color = Color.DarkGray, startAngle = 135f, sweepAngle = 270f, useCenter = false, style = Stroke(12.dp.toPx(), cap = StrokeCap.Round))
             drawArc(color = color, startAngle = 135f, sweepAngle = (animatedScore / 100f) * 270f, useCenter = false, style = Stroke(12.dp.toPx(), cap = StrokeCap.Round))
@@ -611,55 +567,55 @@ fun ThreatBreakdownCard(insights: List<ThreatInsight>) {
     }
 }
 
-// 🔥 FIX: Always show "Block Sender" button if DANGER (state == 4)
-// ==========================================
-// 🔥 SMART BLOCK ACTION CENTER (WITH REAL SYSTEM BLOCKING)
-// ==========================================
 @Composable
 fun ActionCenter(state: Int, phoneToBlock: String?) {
     val context = LocalContext.current
 
-    if (state == 4) {
+    if (state >= 4) { // Show actions for SPAM and DANGER
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("RECOMMENDED ACTIONS", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("RECOMMENDED ACTIONS", color = if(state == 5) Color.Red else Color(0xFFFF9800), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
 
+            val buttonColor = if (state == 5) Color.Red else Color(0xFFFF9800)
             val buttonText = if (phoneToBlock != null) "Block Sender ($phoneToBlock)" else "Report as Spam"
 
             Button(
                 onClick = {
                     if (phoneToBlock != null) {
                         try {
-                            // ১. যদি নাম্বার থাকে, সরাসরি সিস্টেমের ডায়ালারে পাঠিয়ে দেবে ব্লক করার জন্য
                             val intent = android.content.Intent(android.content.Intent.ACTION_DIAL).apply {
                                 data = Uri.parse("tel:$phoneToBlock")
                             }
                             context.startActivity(intent)
                             Toast.makeText(context, "Please block the number from your dialer.", Toast.LENGTH_LONG).show()
-
                         } catch (e: Exception) {
                             Toast.makeText(context, "Could not open dialer.", Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        // ২. যদি নাম্বার না থাকে, শুধু ইউজারকে সতর্ক করবে
                         Toast.makeText(context, "No number found. Please ignore the message.", Toast.LENGTH_LONG).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(0.1f)),
-                border = BorderStroke(1.dp, Color.Red),
+                colors = ButtonDefaults.buttonColors(containerColor = buttonColor.copy(0.1f)),
+                border = BorderStroke(1.dp, buttonColor),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Rounded.Block, null, tint = Color.Red, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Block, null, tint = buttonColor, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(buttonText, color = Color.Red, fontWeight = FontWeight.Bold)
+                Text(buttonText, color = buttonColor, fontWeight = FontWeight.Bold)
             }
         }
-    } else if (state == 3) {
-        Surface(modifier = Modifier.fillMaxWidth(), color = Color.Green.copy(0.1f), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color.Green.copy(0.3f))) {
+    } else if (state in 2..3) {
+        val (bgColor, iconColor, text) = if (state == 2) {
+            Triple(Color.Green.copy(0.1f), Color.Green, "Content is safe to interact with.")
+        } else {
+            Triple(Color(0xFF3B82F6).copy(0.1f), Color(0xFF3B82F6), "Promotional content. Proceed with normal caution.")
+        }
+
+        Surface(modifier = Modifier.fillMaxWidth(), color = bgColor, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, iconColor.copy(0.3f))) {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                Icon(Icons.Rounded.Verified, null, tint = Color.Green, modifier = Modifier.size(20.dp))
+                Icon(if(state == 2) Icons.Rounded.Verified else Icons.Rounded.LocalOffer, null, tint = iconColor, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Content is safe to interact with.", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(text, color = iconColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }

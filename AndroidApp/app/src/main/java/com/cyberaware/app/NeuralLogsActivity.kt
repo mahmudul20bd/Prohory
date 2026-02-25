@@ -42,6 +42,14 @@ import kotlinx.coroutines.launch
 class NeuralLogsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
+        if (isScreenshotProtected) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
         setContent {
             CyberAwareTheme {
                 NeuralLogsScreen(onBack = { finish() })

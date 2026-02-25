@@ -10,6 +10,8 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStreamReader
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.Executors
@@ -17,9 +19,9 @@ import java.util.concurrent.Executors
 class SpamDetector private constructor(private val context: Context) {
 
     companion object {
-        private const val MODEL_NAME = "cyberaware_model.tflite" // আপনার মডেল ফাইলের নাম
+        private const val MODEL_NAME = "cyberaware_model.tflite" // আপনার নতুন মডেল
         private const val VOCAB_NAME = "vocab.txt"
-        private const val MAX_LEN = 128 // মডেলের সিকোয়েন্স লেন্থ [Sequence Length]
+        private const val MAX_LEN = 128
 
         @Volatile
         private var instance: SpamDetector? = null
@@ -34,97 +36,87 @@ class SpamDetector private constructor(private val context: Context) {
     private var interpreter: Interpreter? = null
     private var vocab: Map<String, Int> = HashMap()
     private var isLoaded = false
-    // ব্যাকগ্রাউন্ড প্রসেসিংয়ের জন্য এক্সিকিউটর
+
     private val executorService = Executors.newSingleThreadExecutor()
-    // রেজাল্ট মেইন থ্রেডে পাঠানোর জন্য হ্যান্ডলার
     private val mainHandler = Handler(Looper.getMainLooper())
 
     init {
-        initializeInterpreter()
+        executorService.execute { initializeInterpreterSync() }
     }
 
-    private fun initializeInterpreter() {
-        executorService.execute {
+    private fun initializeInterpreterSync() {
+        try {
+            vocab = loadVocab()
+            val options = Interpreter.Options()
             try {
-                // ১. ভোকাবুলারি লোড
-                vocab = loadVocab()
-                Log.d("CyberAware_AI", "✅ Vocab Loaded. Size: ${vocab.size}")
-
-                // ২. মডেল অপশন কনফিগারেশন
-                val options = Interpreter.Options()
-
-                // Flex Delegate যোগ করা (TFLite 2.16+ এ এটি গুরুত্বপূর্ণ)
-                try {
-                    val flexDelegate = FlexDelegate()
-                    options.addDelegate(flexDelegate)
-                    Log.d("CyberAware_AI", "✅ Flex Delegate Added Successfully")
-                } catch (e: Exception) {
-                    Log.e("CyberAware_AI", "⚠️ Flex Delegate Error (Check Dependencies): ${e.message}")
-                }
-
-                // ৩. মডেল লোড
-                val modelFile = loadModelFile()
-                interpreter = Interpreter(modelFile, options)
-                isLoaded = true
-
-                Log.d("CyberAware_AI", "🚀 AI Engine Ready & Loaded from filesDir")
-
-                // ইনপুট শেপ চেক (ডিবাগিংয়ের জন্য)
-                try {
-                    val inputShape = interpreter?.getInputTensor(0)?.shape()
-                    Log.d("CyberAware_AI", "🔎 Model Expects Input Shape: ${inputShape?.contentToString()}")
-                } catch (e: Exception) {
-                    Log.w("CyberAware_AI", "Could not read input tensor details")
-                }
-
+                options.addDelegate(FlexDelegate())
             } catch (e: Exception) {
-                Log.e("CyberAware_AI", "❌ Critical Init Error: ${e.message}")
-                e.printStackTrace()
-                isLoaded = false
+                Log.e("CyberAware_AI", "Flex Delegate Error: ${e.message}")
             }
+            val modelFile = loadModelFile()
+            interpreter = Interpreter(modelFile, options)
+            isLoaded = true
+            Log.d("CyberAware_AI", "🚀 Manual AI Engine Ready. Vocab Size: ${vocab.size}")
+        } catch (e: Exception) {
+            Log.e("CyberAware_AI", "❌ Critical Init Error: ${e.message}")
+            isLoaded = false
         }
     }
 
-    /**
-     * টেক্সট ক্লাসিফাই করার ফাংশন
-     * @param text যে টেক্সট চেক করতে হবে
-     * @param callback ফলাফল পাওয়ার জন্য কলব্যাক (Label Index, Probability Array)
-     */
     fun classify(text: String, callback: (Int, FloatArray) -> Unit) {
-        if (!isLoaded || interpreter == null) {
-            Log.e("CyberAware_AI", "❌ Engine not ready, re-initializing...")
-            initializeInterpreter()
-            // ফেইলসেফ রিটার্ন
-            mainHandler.post { callback(-1, FloatArray(4)) }
-            return
-        }
-
         executorService.execute {
+            if (!isLoaded || interpreter == null) {
+                initializeInterpreterSync()
+            }
+
+            if (!isLoaded || interpreter == null) {
+                mainHandler.post { callback(-1, FloatArray(4)) }
+                return@execute
+            }
+
             try {
-                // ১. ইনপুট প্রসেসিং (Tokenization + Padding)
-                val inputData = prepareInput(text)
+                // ১. Tokenization
+                val (inputIds, attentionMask) = prepareInputWordPiece(text)
 
-                // 🔥 CRITICAL FIX: মডেল [1, 128] শেপ চায়।
-                // আমাদের কাছে আছে 1D IntArray [128]। এটাকে 2D Array তে কনভার্ট করতে হবে।
+                // ২. ByteBuffer তৈরি (int32 format)
+                val idsBuffer = ByteBuffer.allocateDirect(4 * MAX_LEN).order(ByteOrder.nativeOrder())
+                val maskBuffer = ByteBuffer.allocateDirect(4 * MAX_LEN).order(ByteOrder.nativeOrder())
 
-                val inputIds = Array(1) { inputData.first }       // Shape: [1, 128]
-                val attentionMask = Array(1) { inputData.second } // Shape: [1, 128]
+                for (i in 0 until MAX_LEN) {
+                    idsBuffer.putInt(inputIds[i])
+                    maskBuffer.putInt(attentionMask[i])
+                }
 
-                // ২. ইনপুট অবজেক্ট তৈরি (Multiple Inputs: IDs + Mask)
-                val inputs = arrayOf<Any>(inputIds, attentionMask)
+                // 🔥 CRITICAL: Order Matter! ChatGPT-র ইনস্ট্রাকশন অনুযায়ী mask আগে, ids পরে।
+                val inputs = arrayOf(maskBuffer, idsBuffer)
 
-                // ৩. আউটপুট বাফার তৈরি (Shape: [1, 4])
-                // 0=Safe, 1=Promo, 2=Spam, 3=Danger
+                // ৩. Output Buffer (Float32)
                 val outputBuffer = Array(1) { FloatArray(4) }
                 val outputs = mapOf(0 to outputBuffer)
 
-                // ৪. ইনফারেন্স রান করা (Run Inference)
+                // ৪. Inference Run
                 interpreter?.runForMultipleInputsOutputs(inputs, outputs)
 
-                // ৫. রেজাল্ট প্রসেসিং
-                val probabilities = outputBuffer[0]
+                val rawLogits = outputBuffer[0]
 
-                // সবচেয়ে বেশি প্রোব্যাবিলিটি বের করা (ArgMax)
+                // ৫. Softmax Calculation
+                var maxLogit = rawLogits[0]
+                for (logit in rawLogits) {
+                    if (logit > maxLogit) maxLogit = logit
+                }
+
+                var sumExp = 0.0f
+                val expValues = FloatArray(rawLogits.size)
+                for (i in rawLogits.indices) {
+                    expValues[i] = Math.exp((rawLogits[i] - maxLogit).toDouble()).toFloat()
+                    sumExp += expValues[i]
+                }
+
+                val probabilities = FloatArray(rawLogits.size)
+                for (i in rawLogits.indices) {
+                    probabilities[i] = expValues[i] / sumExp
+                }
+
                 var maxIndex = 0
                 var maxProb = probabilities[0]
                 for (i in 1 until probabilities.size) {
@@ -134,44 +126,30 @@ class SpamDetector private constructor(private val context: Context) {
                     }
                 }
 
-                Log.d("CyberAware_AI", "✅ Result: Label=$maxIndex, Probs=${probabilities.contentToString()}")
+                Log.d("CyberAware_AI", "Pure AI -> Safe: ${probabilities[0]*100}%, Promo: ${probabilities[1]*100}%, Spam: ${probabilities[2]*100}%, Danger: ${probabilities[3]*100}%")
 
-                // ৬. মেইন থ্রেডে রেজাল্ট পাঠানো
-                mainHandler.post {
-                    callback(maxIndex, probabilities)
-                }
+                mainHandler.post { callback(maxIndex, probabilities) }
 
             } catch (e: Exception) {
                 Log.e("CyberAware_AI", "❌ Prediction Error: ${e.message}")
-                e.printStackTrace()
-                mainHandler.post {
-                    callback(-1, FloatArray(4))
-                }
+                mainHandler.post { callback(-1, FloatArray(4)) }
             }
         }
     }
 
-    // ==========================================
-    // 🔥 PATH BUG FIX: Loading from filesDir instead of assets
-    // ==========================================
-
     private fun loadModelFile(): MappedByteBuffer {
         val file = File(context.filesDir, MODEL_NAME)
-        if (!file.exists()) {
-            throw Exception("Model file not found in filesDir")
-        }
+        if (!file.exists()) throw Exception("Model file not found")
         val fileInputStream = FileInputStream(file)
-        val fileChannel = fileInputStream.channel
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
+        return fileInputStream.channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
     }
 
+    // 🔥 FIX: `vocab.txt` এখন `filesDir` থেকে লোড হবে, `assets` থেকে নয় (কারণ আপনি লাইভ সার্ভার থেকে নামান)
     private fun loadVocab(): Map<String, Int> {
         val vocabMap = HashMap<String, Int>()
         try {
             val file = File(context.filesDir, VOCAB_NAME)
-            if (!file.exists()) {
-                throw Exception("Vocab file not found in filesDir")
-            }
+            if (!file.exists()) throw Exception("Vocab file not found in filesDir")
             val reader = BufferedReader(InputStreamReader(FileInputStream(file)))
             var index = 0
             reader.forEachLine { line ->
@@ -182,46 +160,93 @@ class SpamDetector private constructor(private val context: Context) {
             }
             reader.close()
         } catch (e: Exception) {
-            Log.e("CyberAware_AI", "Error loading vocab: ${e.message}")
+            Log.e("CyberAware_AI", "Vocab Load Error: ${e.message}")
         }
         return vocabMap
     }
 
-    private fun prepareInput(text: String): Pair<IntArray, IntArray> {
-        val cleanedText = text.lowercase().trim()
-        // Basic whitespace tokenizer (আপনার vocab অনুযায়ী)
-        val words = cleanedText.split(Regex("\\s+"))
+    // ==================================================
+    // 🔥 100% HUGGINGFACE COMPATIBLE CASED WORDPIECE TOKENIZER 🔥
+    // ==================================================
+    private fun prepareInputWordPiece(text: String): Pair<IntArray, IntArray> {
+        // Punctuation আলাদা করা কিন্তু lowercase না করা (কারণ Cased model)
+        val regex = Regex("([\\p{Punct}])")
+        val spacedText = text.replace(regex, " $1 ")
+        val words = spacedText.trim().split("\\s+".toRegex())
 
-        val inputIds = IntArray(MAX_LEN)
-        val attentionMask = IntArray(MAX_LEN)
+        val inputIds = IntArray(MAX_LEN) { vocab["[PAD]"] ?: 0 } // Default PAD
+        val attentionMask = IntArray(MAX_LEN) { 0 }
 
         val clsId = vocab["[CLS]"] ?: 101
         val sepId = vocab["[SEP]"] ?: 102
         val unkId = vocab["[UNK]"] ?: 100
 
         var index = 0
-
-        // [CLS] Start Token
         inputIds[index] = clsId
         attentionMask[index] = 1
         index++
 
         for (word in words) {
+            if (word.isEmpty()) continue
             if (index >= MAX_LEN - 1) break // [SEP] এর জন্য জায়গা রাখা
 
-            val id = vocab[word] ?: unkId
-            inputIds[index] = id
-            attentionMask[index] = 1
-            index++
+            if (vocab.containsKey(word)) {
+                inputIds[index] = vocab[word]!!
+                attentionMask[index] = 1
+                index++
+                continue
+            }
+
+            // WordPiece Greedy Algorithm
+            var start = 0
+            var isUnk = false
+            val subTokens = mutableListOf<Int>()
+
+            while (start < word.length) {
+                var end = word.length
+                var matchId: Int? = null
+
+                while (start < end) {
+                    var subStr = word.substring(start, end)
+                    if (start > 0) subStr = "##$subStr"
+
+                    if (vocab.containsKey(subStr)) {
+                        matchId = vocab[subStr]
+                        break
+                    }
+                    end--
+                }
+
+                if (matchId == null) {
+                    isUnk = true
+                    break
+                } else {
+                    subTokens.add(matchId)
+                    start = end
+                }
+            }
+
+            if (isUnk) {
+                if (index < MAX_LEN - 1) {
+                    inputIds[index] = unkId
+                    attentionMask[index] = 1
+                    index++
+                }
+            } else {
+                for (tokenId in subTokens) {
+                    if (index >= MAX_LEN - 1) break
+                    inputIds[index] = tokenId
+                    attentionMask[index] = 1
+                    index++
+                }
+            }
         }
 
-        // [SEP] End Token
         if (index < MAX_LEN) {
             inputIds[index] = sepId
             attentionMask[index] = 1
         }
 
-        // বাকি অংশ 0 দিয়ে প্যাডিং করা থাকবে (Java/Kotlin IntArray default is 0)
         return Pair(inputIds, attentionMask)
     }
 }

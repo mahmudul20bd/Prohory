@@ -10,6 +10,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +62,7 @@ fun LoginScreen() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    // 🔥 Email er jaygay loginId use korchi jate PRH ID o nite pare
     var loginId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -71,11 +73,10 @@ fun LoginScreen() {
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A))) {
 
-        // 🔥 YOUR FAVORITE FALLING BUBBLE ANIMATION 🔥
         CyberMatrixBackground()
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -84,27 +85,33 @@ fun LoginScreen() {
                 enter = slideInVertically(initialOffsetY = { -50 }) + fadeIn(tween(800))
             ) {
                 val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.scan_anim))
-                LottieAnimation(composition = composition, iterations = LottieConstants.IterateForever, modifier = Modifier.size(180.dp).scale(1.2f))
+                Box(modifier = Modifier.size(160.dp).background(NeonCyan.copy(alpha = 0.05f), RoundedCornerShape(40.dp)).border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(40.dp)), contentAlignment = Alignment.Center) {
+                    LottieAnimation(composition = composition, iterations = LottieConstants.IterateForever, modifier = Modifier.size(130.dp))
+                }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
             AnimatedVisibility(
                 visible = isVisible,
                 enter = slideInVertically(initialOffsetY = { 50 }) + fadeIn(tween(800, delayMillis = 300))
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("SYSTEM ACCESS", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                    Text("Authenticate Identity", color = NeonCyan, fontSize = 14.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
+                    Text("Welcome Back!", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                    Text("Log in to secure your messages", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 40.dp))
 
-                    CyberTextField(value = loginId, onValueChange = { loginId = it }, label = "AGENT ID / EMAIL", icon = Icons.Default.Email)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    CyberTextField(value = password, onValueChange = { password = it }, label = "ACCESS KEY", icon = Icons.Default.Lock, isPassword = true, passwordVisible = passwordVisible, onVisibilityChange = { passwordVisible = !passwordVisible })
+                    // 🔥 Placeholder clear korar jonno update kora holo ebong PRH ID add kora holo
+                    PremiumTextField(value = loginId, onValueChange = { loginId = it }, label = "Email, Username or Agent ID", icon = Icons.Default.Email)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    PremiumTextField(value = password, onValueChange = { password = it }, label = "Password", icon = Icons.Default.Lock, isPassword = true, passwordVisible = passwordVisible, onVisibilityChange = { passwordVisible = !passwordVisible })
 
-                    Text("Lost Key?", color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.End).padding(top = 12.dp, bottom = 24.dp).clickable { })
+                    Text("Forgot Password?", color = NeonCyan, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.End).padding(top = 16.dp, bottom = 30.dp).clickable {
+                        // Navigating to Forgot Password Page
+                        context.startActivity(Intent(context, ForgotPasswordActivity::class.java))
+                    })
 
-                    NeonButton(
-                        text = if (isLoading) "AUTHENTICATING..." else "INITIATE LOGIN",
+                    PremiumButton(
+                        text = if (isLoading) "LOGGING IN..." else "LOG IN",
                         isLoading = isLoading,
                         onClick = {
                             if (loginId.isNotEmpty() && password.isNotEmpty()) {
@@ -118,33 +125,35 @@ fun LoginScreen() {
                                             val authResponse = response.body()!!
                                             val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
                                             with(sharedPref.edit()) {
+                                                putBoolean("isLoggedIn", true)
                                                 putString("auth_token", authResponse.token)
                                                 putString("username", authResponse.username)
                                                 putString("agentId", authResponse.agentId ?: "UNKNOWN")
                                                 apply()
                                             }
-                                            Toast.makeText(context, "Access Granted", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
                                             context.startActivity(Intent(context, DashboardActivity::class.java))
                                             (context as? ComponentActivity)?.finish()
                                         } else {
-                                            Toast.makeText(context, "Invalid Credentials", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Incorrect Credentials", Toast.LENGTH_SHORT).show()
                                         }
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "Server Error", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "No Internet Connection", Toast.LENGTH_SHORT).show()
                                     } finally {
                                         isLoading = false
                                     }
                                 }
                             } else {
-                                Toast.makeText(context, "Credentials Required", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Please enter both fields", Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
 
-                    Spacer(modifier = Modifier.height(30.dp))
+                    Spacer(modifier = Modifier.height(40.dp))
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "Unregistered? ", color = Color.Gray, fontSize = 13.sp)
-                        Text(text = "Join Task Force", color = NeonCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                        Text(text = "Don't have an account? ", color = Color.Gray, fontSize = 14.sp)
+                        Text(text = "Create Account", color = NeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
                             context.startActivity(Intent(context, RegisterActivity::class.java))
                         })
                     }
@@ -154,38 +163,67 @@ fun LoginScreen() {
     }
 }
 
-// Components
+// ===============================================
+// 🔥 PREMIUM ADVANCED UI COMPONENTS 🔥
+// ===============================================
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isPassword: Boolean = false, passwordVisible: Boolean = false, onVisibilityChange: () -> Unit = {}) {
+fun PremiumTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isPassword: Boolean = false, passwordVisible: Boolean = false, onVisibilityChange: () -> Unit = {}) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    val borderColor by animateColorAsState(targetValue = if (isFocused) NeonCyan else Color(0xFF1E293B), animationSpec = tween(300))
+    val iconColor by animateColorAsState(targetValue = if (isFocused) NeonCyan else Color.Gray, animationSpec = tween(300))
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, color = NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
         OutlinedTextField(
-            value = value, onValueChange = onValueChange, placeholder = { Text("Enter $label", color = Color.DarkGray, fontSize = 14.sp) },
-            leadingIcon = { Icon(icon, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp)) },
+            value = value,
+            onValueChange = onValueChange,
+            // 🔥 Ekhane placeholder er color Color.DarkGray theke Color(0xFFA0AABF) (Light Slate) kora hoyeche jate sposto bujha jay
+            placeholder = { Text(label, color = Color(0xFFA0AABF), fontSize = 14.sp) },
+            leadingIcon = { Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(22.dp)) },
             trailingIcon = if (isPassword) { { IconButton(onClick = onVisibilityChange) { Icon(imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = null, tint = Color.Gray) } } } else null,
             visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text),
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                cursorColor = NeonCyan, focusedBorderColor = NeonCyan,
-                unfocusedBorderColor = Color.DarkGray,
-                focusedContainerColor = Color(0xFF0B1221), unfocusedContainerColor = Color(0xFF050A14)
+                cursorColor = NeonCyan,
+                focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent
             ),
-            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(55.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .background(Color(0xFF0F172A), RoundedCornerShape(16.dp))
+                .border(1.5.dp, borderColor, RoundedCornerShape(16.dp))
         )
     }
 }
 
 @Composable
-fun NeonButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
+fun PremiumButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val pulseScale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.02f, animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse))
+
     Button(
-        onClick = onClick, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent), contentPadding = PaddingValues(), shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().height(55.dp).background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)), shape = RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))
+        onClick = onClick,
+        enabled = !isLoading,
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
+        contentPadding = PaddingValues(),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .scale(if (isLoading) 1f else pulseScale)
+            .background(brush = Brush.horizontalGradient(listOf(NeonBlue, NeonPurple)), shape = RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
     ) {
-        if (isLoading) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp); Spacer(modifier = Modifier.width(12.dp)) }
-        Text(text = text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        if (isLoading) {
+            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+        }
+        Text(text = text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
     }
 }
 

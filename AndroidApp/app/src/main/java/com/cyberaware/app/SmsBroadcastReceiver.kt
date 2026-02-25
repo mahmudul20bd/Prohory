@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import android.provider.Telephony
 import android.util.Log
@@ -17,42 +18,48 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 class SmsBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
             val smsMessages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-            val pendingResult = goAsync() // প্রসেস কিল হওয়া থেকে বাঁচাবে
+            if (smsMessages == null || smsMessages.isEmpty()) return
+
+            val pendingResult = goAsync()
+
+            var fullBody = ""
+            var sender = "Unknown"
 
             for (message in smsMessages) {
-                val sender = message.displayOriginatingAddress ?: "Unknown"
-                val body = message.messageBody ?: ""
+                if (message != null) {
+                    sender = message.displayOriginatingAddress ?: "Unknown"
+                    fullBody += message.messageBody ?: ""
+                }
+            }
 
-                Log.d("PROHORY_GUARD", "নতুন এসএমএস এসেছে: $sender")
+            Log.d("PROHORY_GUARD", "New SMS Received: $sender")
 
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        analyzeThreat(context, sender, body)
-                    } catch (e: Exception) {
-                        Log.e("PROHORY_GUARD", "SMS Process Error: ${e.message}")
-                    } finally {
-                        pendingResult.finish()
-                    }
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    analyzeThreat(context, sender, fullBody)
+                } catch (e: Exception) {
+                    Log.e("PROHORY_GUARD", "SMS Process Error: ${e.message}")
+                } finally {
+                    pendingResult.finish()
                 }
             }
         }
     }
+
     private suspend fun analyzeThreat(context: Context, sender: String, body: String) {
         val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
         val token = sharedPref.getString("auth_token", "") ?: ""
         val authHeader = if (token.startsWith("Bearer ")) token else "Bearer $token"
 
-        // ==========================================
-        // 🚀 ENTERPRISE TELEMETRY DATA PREPARATION
-        // ==========================================
         val userRegion = sharedPref.getString("user_division", "") ?: ""
-
         var deviceId = sharedPref.getString("anonymous_device_id", null)
         if (deviceId == null) {
             deviceId = UUID.randomUUID().toString()
@@ -71,68 +78,101 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         )
 
         try {
-            // 🚀 ১. সবার আগে Cloud AI কল করবে (কারণ এটি সবচেয়ে পাওয়ারফুল)
             val response = RetrofitClient.apiService.checkSpamOnline(authHeader, telemetryPayload)
 
             if (response.isSuccessful && response.body()?.isSpam == true) {
-                triggerThreatAlert(context, sender, body, "Cloud Backend")
+                // ক্লাউড থেকে স্প্যাম আসলে ডিফল্টভাবে DANGER হিসেবেই অ্যালার্ট দেবে
+                triggerThreatAlert(context, sender, body, "Cloud Scanner", "DANGER")
             } else if (!response.isSuccessful) {
-                // টোকেন এক্সপায়ার হলে বা সার্ভার এরর দিলে Offline-এ চলে যাবে
                 runOfflineFallback(context, sender, body)
             }
         } catch (e: Exception) {
-            // ইন্টারনেট কানেকশন না থাকলে Offline-এ চলে যাবে
-            Log.e("PROHORY_GUARD", "Cloud AI failed: ${e.message}. Using Offline AI.")
+            Log.e("PROHORY_GUARD", "Cloud AI failed: ${e.message}. Switching to Offline mode.")
             runOfflineFallback(context, sender, body)
         }
     }
 
-    // 🚀 ২. ইন্টারনেট বা সার্ভার ফেইল করলে এটি কাজ করবে (Purely Offline AI - No Hardcoded Strings)
-    private fun runOfflineFallback(context: Context, sender: String, body: String) {
+    private suspend fun runOfflineFallback(context: Context, sender: String, body: String) {
         val modelFile = File(context.filesDir, "cyberaware_model.tflite")
+
         if (modelFile.exists()) {
             val detector = SpamDetector.getInstance(context)
-            detector.classify(body) { labelIndex, _ ->
-                // Model er output jodi 2 (Spam) ba 3 (Smishing) hoy, tobei alert dibe
-                if (labelIndex == 2 || labelIndex == 3) {
-                    triggerThreatAlert(context, sender, body, "Offline AI")
-                } else {
-                    Log.d("PROHORY_GUARD", "Offline AI scanned and marked it as SAFE.")
+
+            val labelIndex = suspendCoroutine<Int> { continuation ->
+                detector.classify(body) { index, _ ->
+                    continuation.resume(index)
+                }
+            }
+
+            // 🔥 4-Level PURE AI DETECTION Logic
+            when (labelIndex) {
+                3 -> { // DANGER
+                    Log.d("PROHORY_GUARD", "Offline AI marked it as DANGER.")
+                    triggerThreatAlert(context, sender, body, "Offline Scanner", "DANGER")
+                }
+                2 -> { // SPAM
+                    Log.d("PROHORY_GUARD", "Offline AI marked it as SPAM.")
+                    triggerThreatAlert(context, sender, body, "Offline Scanner", "SPAM")
+                }
+                1 -> { // PROMO
+                    // প্রোমোশনাল মেসেজের জন্য নোটিফিকেশন দিয়ে বিরক্ত না করাই ভালো
+                    Log.d("PROHORY_GUARD", "Offline AI marked it as PROMO. Ignored.")
+                }
+                else -> { // SAFE
+                    Log.d("PROHORY_GUARD", "Offline AI marked it as SAFE. Ignored.")
                 }
             }
         } else {
-            // Model na thakle ekhon ar kono fariabaji (keyword check) hobe na
-            Log.e("PROHORY_GUARD", "Offline Model is missing! Cannot scan threat without internet.")
+            Log.e("PROHORY_GUARD", "Offline Model is missing!")
         }
     }
 
-    private fun triggerThreatAlert(context: Context, sender: String, body: String, source: String) {
-        showThreatNotification(context, sender, body)
+    private fun triggerThreatAlert(context: Context, sender: String, body: String, source: String, threatLevel: String) {
+        showThreatNotification(context, sender, body, source, threatLevel)
         saveToSmsGuard(context, sender, body)
     }
 
-
-
-    private fun showThreatNotification(context: Context, sender: String, body: String) {
+    private fun showThreatNotification(context: Context, sender: String, body: String, source: String, threatLevel: String) {
         val channelId = "PROHORY_THREAT_ALERTS"
+
+        // 🔥 4-Level AI: Threat Level অনুযায়ী কালার এবং টেক্সট পরিবর্তন
+        val isDanger = threatLevel == "DANGER"
+        val notifColor = if (isDanger) Color.RED else android.graphics.Color.parseColor("#FF9800") // Red for Danger, Orange for Spam
+        val titleText = if (isDanger) "🚨 Dangerous Scam Blocked!" else "⚠️ Spam Message Detected!"
+        val bigTitle = if (isDanger) "🚨 Scam Alert!" else "⚠️ Spam Alert!"
+        val summaryText = if (isDanger) "We blocked a dangerous message from $sender." else "A suspicious spam message was intercepted from $sender."
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Cyber Threats", NotificationManager.IMPORTANCE_HIGH)
+            val channel = NotificationChannel(channelId, "Scam Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Alerts for dangerous and spam messages"
+                enableVibration(true)
+                enableLights(true)
+                lightColor = notifColor
+            }
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
+
         val intent = Intent(context, SmsGuardActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK }
         val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("⚠️ Malicious SMS Detected")
-            .setContentText("Source: $sender")
+            .setColor(notifColor)
+            .setContentTitle(titleText)
+            .setContentText("Sender: $sender")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .setBigContentTitle(bigTitle)
+                .setSummaryText("Protected by $source")
+                .bigText("$summaryText\n\nMessage:\n$body"))
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVibrate(longArrayOf(0, 400, 200, 400))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
         try { NotificationManagerCompat.from(context).notify(sender.hashCode(), builder.build()) }
-        catch (e: SecurityException) { Log.e("PROHORY_GUARD", "Notification Permission নেই!") }
+        catch (e: SecurityException) { Log.e("PROHORY_GUARD", "Notification Permission missing!") }
     }
 
     private fun saveToSmsGuard(context: Context, sender: String, body: String) {

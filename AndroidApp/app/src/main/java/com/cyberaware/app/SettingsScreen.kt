@@ -66,9 +66,10 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     var confirmPasswordInput by remember { mutableStateOf("") }
 
     // Settings States
-    var biometricLogin by remember { mutableStateOf(sharedPref.getBoolean("biometric_login", true)) }
+    var biometricLogin by remember { mutableStateOf(sharedPref.getBoolean("biometric_login", false)) }
     var screenshotProtect by remember { mutableStateOf(sharedPref.getBoolean("screenshot_protect", false)) }
-    var autoScanWifi by remember { mutableStateOf(sharedPref.getBoolean("auto_scan_wifi", true)) }
+    var autoScanWifi by remember { mutableStateOf(sharedPref.getBoolean("auto_scan_wifi", false
+    )) }
     var autoClearLogs by remember { mutableStateOf(sharedPref.getBoolean("auto_clear_logs", false)) }
 
     // Real-time Health Score

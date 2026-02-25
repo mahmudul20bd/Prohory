@@ -54,6 +54,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polygon
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // Data Models
 data class DivisionSector(
@@ -78,7 +81,7 @@ fun GlobalThreatMapScreen() {
 
     // Live Stats for UX
     var connectionStatus by remember { mutableStateOf("CONNECTING...") }
-    var totalThreatsBlocked by remember { mutableIntStateOf(0) }
+    var totalThreatsDetected by remember { mutableIntStateOf(0) }
     val liveLogs = remember { mutableStateListOf<AdvancedAttackLog>() }
     var logCounter by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
@@ -103,7 +106,7 @@ fun GlobalThreatMapScreen() {
                     val stats = statsResponse.body()
                     if (stats != null) {
                         withContext(Dispatchers.Main) {
-                            totalThreatsBlocked = stats.blockedScams
+                            totalThreatsDetected = stats.blockedScams
                         }
                     }
                 }
@@ -113,15 +116,32 @@ fun GlobalThreatMapScreen() {
                     val logs = logsResponse.body() ?: emptyList()
                     withContext(Dispatchers.Main) {
                         logs.filter { it.actionType != "LOGIN" && it.actionType != "REGISTRATION" }
-                            .take(15)
                             .forEach { log ->
-                                val severity = if (log.actionType == "THREAT_DETECTED" || log.actionType == "TELEMETRY_ALERT" || log.actionType == "THREAT" || log.actionType == "SCAM") "CRITICAL" else "WARNING"
-                                liveLogs.add(AdvancedAttackLog(logCounter++, log.details, severity, 0L, log.details))
+                                val typeUpper = log.actionType.uppercase()
+
+                                // 🔥 FIX: Properly classifying map logs based on actual backend data
+                                val severity = when {
+                                    typeUpper.contains("DANGER") || typeUpper.contains("SCAM") || typeUpper.contains("PHISHING") || typeUpper.contains("THREAT") -> "DANGER"
+                                    typeUpper.contains("SPAM") || typeUpper.contains("ALERT") || typeUpper.contains("WARNING") -> "SPAM"
+                                    else -> "SAFE"
+                                }
+
+                                if (severity == "DANGER" || severity == "SPAM") {
+                                    val timeInMillis = try {
+                                        val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                                        format.parse(log.timestamp ?: "")?.time ?: System.currentTimeMillis()
+                                    } catch (e: Exception) { System.currentTimeMillis() }
+
+                                    liveLogs.add(AdvancedAttackLog(logCounter++, log.details, severity, timeInMillis, log.details))
+                                }
                             }
+                        if (liveLogs.size > 15) {
+                            liveLogs.removeRange(15, liveLogs.size)
+                        }
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("PROHORY_MAP", "Failed to fetch map history: ${e.message}")
+                Log.e("PROHORY_MAP", "Failed to fetch map history: ${e.message}")
             }
 
             withContext(Dispatchers.Main) {
@@ -154,22 +174,27 @@ fun GlobalThreatMapScreen() {
                         val jsonEndIndex = text.lastIndexOf("}") + 1
                         if (jsonStartIndex in 0 until jsonEndIndex) {
                             val jsonString = text.substring(jsonStartIndex, jsonEndIndex)
-                            val json = org.json.JSONObject(jsonString)
+                            val json = JSONObject(jsonString)
 
                             val isSpam = json.optBoolean("isSpam", false)
                             val region = json.optString("region", "UNKNOWN")
-                            val type = json.optString("type", "Unknown Threat")
+                            val type = json.optString("type", "Unknown").uppercase()
                             val confidence = json.optDouble("confidence", 0.0)
                             val rawHeatPoints = json.optInt("heatPoints", 1)
 
-                            if (isSpam) {
-                                coroutineScope.launch {
-                                    totalThreatsBlocked++
+                            val severity = when {
+                                type.contains("DANGER") || type.contains("SCAM") || type.contains("PHISHING") || rawHeatPoints >= 3 -> "DANGER"
+                                type.contains("SPAM") || isSpam -> "SPAM"
+                                else -> "SAFE"
+                            }
 
-                                    val severity = if (rawHeatPoints >= 3) "CRITICAL" else "WARNING"
+                            coroutineScope.launch {
+                                if (severity == "DANGER" || severity == "SPAM") {
+                                    totalThreatsDetected++
+
                                     val displayRegion = if (region == "UNKNOWN") "an UNKNOWN Origin" else "$region Region"
-
-                                    val msg = "🚨 Alert! $type scam detected in $displayRegion."
+                                    val msg = if (severity == "DANGER") "🚨 Alert! Malicious $type detected in $displayRegion."
+                                    else "⚠️ Warning! Suspicious spam detected in $displayRegion."
 
                                     liveLogs.add(0, AdvancedAttackLog(logCounter++, msg, severity, System.currentTimeMillis(), msg))
 
@@ -178,7 +203,10 @@ fun GlobalThreatMapScreen() {
                                     }
 
                                     if (targetDiv != null) {
-                                        targetDiv.threatLevel += (rawHeatPoints * 10)
+                                        when (severity) {
+                                            "DANGER" -> targetDiv.threatLevel += (rawHeatPoints * 10).coerceAtLeast(25)
+                                            "SPAM" -> targetDiv.threatLevel += (rawHeatPoints * 5).coerceAtLeast(10)
+                                        }
                                         targetDiv.confidence = confidence
                                         targetDiv.targetedUsers += 1
                                     }
@@ -223,7 +251,6 @@ fun GlobalThreatMapScreen() {
         )
     }
 
-    // Animation for the live dot
     val infiniteTransition = rememberInfiniteTransition()
     val dotPulse by infiniteTransition.animateFloat(
         initialValue = 0.5f, targetValue = 1.2f,
@@ -237,9 +264,8 @@ fun GlobalThreatMapScreen() {
             .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 4.dp)
     ) {
 
-        // 🔥 UPGRADED HEADER WITH LIVE PULSE DOT
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp, top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -250,17 +276,21 @@ fun GlobalThreatMapScreen() {
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column {
-                Text("Live Threat Map", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("See real-time scams and dangerous messages being detected across the country.", color = Color.Gray, fontSize = 11.sp)
+                Text("Live Threat Map", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text(
+                    "Real-time scams and dangerous messages detected countrywide.",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
 
-        // 🔥 UPGRADED PREMIUM HUD CARDS (SPLIT LAYOUT)
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Card 1: Server Link
             val isConnected = connectionStatus == "CONNECTED"
             val linkColor = if (isConnected) Color(0xFF10B981) else Color.Red
 
@@ -285,7 +315,6 @@ fun GlobalThreatMapScreen() {
                 }
             }
 
-            // Card 2: Threats Blocked
             Surface(
                 modifier = Modifier.weight(1f).height(65.dp),
                 color = Color(0xFF131C2B),
@@ -301,14 +330,13 @@ fun GlobalThreatMapScreen() {
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(verticalArrangement = Arrangement.Center) {
-                        Text("BLOCKED", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("$totalThreatsBlocked Threats", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Text("DETECTED", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("$totalThreatsDetected Scams", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
         }
 
-        // Fully Responsive Map
         Surface(
             modifier = Modifier.fillMaxWidth().weight(1.2f)
                 .border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
@@ -326,7 +354,6 @@ fun GlobalThreatMapScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Responsive Terminal Logs
         Surface(
             modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(16.dp)),
             color = Color(0xFF131C2B),
@@ -355,21 +382,35 @@ fun GlobalThreatMapScreen() {
     }
 }
 
+fun getMapTimeAgo(timeInMillis: Long): String {
+    if (timeInMillis == 0L) return "Scanned just now"
+    val diff = System.currentTimeMillis() - timeInMillis
+    val mins = diff / (1000 * 60)
+    val hours = mins / 60
+    val days = hours / 24
+    return when {
+        mins < 1 -> "Scanned just now"
+        mins < 60 -> "Scanned $mins mins ago"
+        hours < 24 -> "Scanned $hours hours ago"
+        else -> "Scanned $days days ago"
+    }
+}
+
 @Composable
 fun AnimatedLogItem(log: AdvancedAttackLog) {
     val userFriendlyMessage = remember(log.rawDetails) {
         val details = log.rawDetails.lowercase()
         when {
-            log.logMessage.startsWith("🚨") -> log.logMessage
-            details.contains("ocr") || details.contains("image") -> "📸 Image scan completed."
-            details.contains("manual") -> "🔍 Manual message scan completed."
-            details.contains("phishing") || details.contains("link") -> "🎣 Dangerous website link was blocked."
-            log.severity == "CRITICAL" -> "⚠️ A harmful spam or scam message was detected."
-            else -> "✅ System security check completed."
+            log.logMessage.startsWith("🚨") || log.logMessage.startsWith("⚠️") -> log.logMessage
+            details.contains("ocr") || details.contains("image") -> "📸 Image scan found a threat."
+            details.contains("phishing") || details.contains("link") -> "🎣 Dangerous website link was detected."
+            log.severity == "DANGER" -> "🚨 DANGER: Malicious scam or phishing detected."
+            log.severity == "SPAM" -> "⚠️ SPAM: Unsolicited message detected."
+            else -> log.logMessage
         }
     }
 
-    val statusColor = if (log.severity == "CRITICAL") Color(0xFFFF5252) else Color(0xFF3B82F6)
+    val statusColor = if (log.severity == "DANGER") Color(0xFFFF5252) else Color(0xFFFF9800)
 
     val infiniteTransition = rememberInfiniteTransition()
     val pulse by infiniteTransition.animateFloat(
@@ -397,18 +438,17 @@ fun AnimatedLogItem(log: AdvancedAttackLog) {
             Column {
                 Text(
                     text = userFriendlyMessage,
-                    color = if (log.severity == "CRITICAL") Color(0xFFFFCDD2) else Color.White,
+                    color = if (log.severity == "DANGER") Color(0xFFFFCDD2) else Color.White,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Default,
-                    fontWeight = if (log.severity == "CRITICAL") FontWeight.Bold else FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     lineHeight = 16.sp
                 )
 
-                val timeStr = if(log.timestamp > 0) "Just now" else "Recent Activity"
                 Text(
-                    text = timeStr,
+                    text = getMapTimeAgo(log.timestamp),
                     color = Color(0xFFB0BEC5),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
@@ -417,8 +457,7 @@ fun AnimatedLogItem(log: AdvancedAttackLog) {
     }
 }
 
-// ... [RegionalSetupModal, parseGeoJsonSmart, DivisionMapComposable, AdvancedThreatOverlay exactly the same] ...
-
+// ... [RegionalSetupModal, parseGeoJsonSmart, DivisionMapComposable, AdvancedThreatOverlay remain entirely unchanged] ...
 @Composable
 fun RegionalSetupModal(onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
@@ -639,14 +678,27 @@ fun DivisionMapComposable(divisions: List<DivisionSector>) {
             map.overlays.filterIsInstance<Polygon>().forEach { poly ->
                 val div = divisions.find { it.name == poly.id }
                 if (div != null) {
-                    if (div.threatLevel > 0) {
-                        poly.outlinePaint.color = if (div.threatLevel > 20) android.graphics.Color.RED else android.graphics.Color.YELLOW
-                        poly.outlinePaint.alpha = 255
-                        poly.outlinePaint.strokeWidth = 3f
-                    } else {
-                        poly.outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0")
-                        poly.outlinePaint.alpha = 150
-                        poly.outlinePaint.strokeWidth = 2.5f
+                    when {
+                        div.threatLevel > 20 -> {
+                            poly.outlinePaint.color = android.graphics.Color.RED
+                            poly.outlinePaint.alpha = 255
+                            poly.outlinePaint.strokeWidth = 3.5f
+                        }
+                        div.threatLevel > 5 -> {
+                            poly.outlinePaint.color = android.graphics.Color.parseColor("#FF9800")
+                            poly.outlinePaint.alpha = 220
+                            poly.outlinePaint.strokeWidth = 3f
+                        }
+                        div.threatLevel > 0 -> {
+                            poly.outlinePaint.color = android.graphics.Color.parseColor("#3B82F6")
+                            poly.outlinePaint.alpha = 180
+                            poly.outlinePaint.strokeWidth = 2.5f
+                        }
+                        else -> {
+                            poly.outlinePaint.color = android.graphics.Color.parseColor("#E0E0E0")
+                            poly.outlinePaint.alpha = 150
+                            poly.outlinePaint.strokeWidth = 2.5f
+                        }
                     }
                 }
             }
@@ -680,7 +732,8 @@ class AdvancedThreatOverlay(private val divisions: List<DivisionSector>) : Overl
 
             val (color, speed, maxRadius) = when {
                 div.threatLevel > 20 -> arrayOf(android.graphics.Color.parseColor("#FF1744"), 1200f, 150f)
-                div.threatLevel > 5  -> arrayOf(android.graphics.Color.parseColor("#FFC400"), 1600f, 100f)
+                div.threatLevel > 5  -> arrayOf(android.graphics.Color.parseColor("#FF9800"), 1600f, 100f)
+                div.threatLevel > 0  -> arrayOf(android.graphics.Color.parseColor("#3B82F6"), 2000f, 80f)
                 else                 -> arrayOf(android.graphics.Color.parseColor("#00E5FF"), 2500f, 60f)
             }
 

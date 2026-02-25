@@ -11,8 +11,8 @@ android {
         applicationId = "com.cyberaware.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "3.1.2"
+        versionCode = 6
+        versionName = "4.4.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -108,12 +108,17 @@ dependencies {
 
     // যদি ফ্লেক্স ডেলিগেট লাগে (আপনার মডেলের জন্য লাগতে পারে)
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    implementation("com.google.ai.edge.litert:litert-support:$litertVersion")
+
 
     // 🔥 NETWORKING
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     // AndroidX Biometric for Fingerprint/Face Unlock
     implementation("androidx.biometric:biometric:1.1.0")
+
 
     // 🔥 TESTING
     testImplementation("junit:junit:4.13.2")
@@ -139,6 +144,8 @@ dependencies {
     implementation("com.github.NaikSoftware:StompProtocolAndroid:1.6.6")
     implementation("io.reactivex.rxjava2:rxjava:2.2.21")
     implementation("io.reactivex.rxjava2:rxandroid:2.1.1")
+
+    implementation("androidx.compose.material3:material3:1.3.1")
 
 
 }
