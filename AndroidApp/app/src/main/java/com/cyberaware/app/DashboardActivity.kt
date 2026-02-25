@@ -108,8 +108,9 @@ fun getTimeAgo(timeInMillis: Long): String {
     }
 }
 
+// 🔥 FIX: Scoped ViewModel to ComponentActivity so it does not recreate during tab switch
 @Composable
-fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
+fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)) {
     val context = LocalContext.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -208,7 +209,10 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
 
     val userProfile by viewModel.userProfile.collectAsState()
     val stats by viewModel.dashboardStats.collectAsState()
-    val liveThreat by viewModel.liveThreatLevel.collectAsState()
+
+    val liveThreatRaw by viewModel.liveThreatLevel.collectAsState()
+    val liveThreat = liveThreatRaw ?: 0.1f
+
     val recentLogs by viewModel.recentLogs.collectAsState()
 
     val dbUserName = userProfile?.username ?: myUsername.ifEmpty { "User" }
@@ -217,7 +221,6 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
     val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
     val savedThreats = threatPrefs.getStringSet("quarantine_list", emptySet()) ?: emptySet()
 
-    // Personal Security Score Logic uses local threats
     val localThreatCount = savedThreats.size
     val isRealTimeOn = sharedPref.getBoolean("real_time_protection", true)
     val isBiometricOn = sharedPref.getBoolean("biometric_login", true)
@@ -228,10 +231,8 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
 
     val personalScore = (100 - scoreDeduction).coerceIn(10, 100)
 
-    // 🔥 PURE GLOBAL STATS LOGIC (As requested by user)
     val totalBlocked = stats?.blockedScams ?: 0
 
-    // DYNAMIC THREAT STATE FOR NOTIFICATION
     var latestThreatTime by remember { mutableStateOf<Long?>(null) }
     var latestThreatType by remember { mutableStateOf<String?>(null) }
 
@@ -303,7 +304,7 @@ fun MainIntelligenceContainer(viewModel: DashboardViewModel = viewModel()) {
                     0 -> EnterpriseHomeDashboard(
                         userName = dbUserName,
                         stats = stats,
-                        totalBlocked = totalBlocked, // Passed pure global stats
+                        totalBlocked = totalBlocked,
                         liveThreat = liveThreat,
                         personalScore = personalScore,
                         localThreatCount = localThreatCount,
@@ -681,35 +682,53 @@ fun EnterpriseHomeDashboard(
     }
 }
 
-// 🔥 CRASH FIX & JUMPING BUG FIX (100% Stable Version)
+// 🔥 FINAL STABLE RADAR: Perfect Sharp Spike & Idle Moving
 @Composable
 fun AdvancedThreatRadar(liveThreat: Float) {
+    val baseLine = 0.1f
+
     val spikeData = remember {
         mutableStateListOf<Float>().apply {
-            val baseValue = if (liveThreat > 0.05f) liveThreat else 0.1f
-            repeat(20) { add(baseValue) }
+            repeat(40) { add(baseLine) }
         }
     }
 
-    var lastValidValue by remember { mutableFloatStateOf(if (liveThreat > 0.05f) liveThreat else 0.1f) }
+    var currentSpike by remember { mutableFloatStateOf(baseLine) }
+    var lastSeenThreat by remember { mutableFloatStateOf(liveThreat) }
 
+    // 🔥 FIX: Guarantee Spike Triggering
     LaunchedEffect(liveThreat) {
-        if (liveThreat > 0.05f) {
-            lastValidValue = liveThreat
+        if (liveThreat > lastSeenThreat && liveThreat > 0.15f) {
+            currentSpike = liveThreat // ডেঞ্জার বা স্প্যাম আসলে স্পাইকের ভ্যালু সেট হবে
         }
+        lastSeenThreat = liveThreat
     }
 
-    LaunchedEffect(lastValidValue) {
-        while(true) {
-            delay(400)
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(150)
 
-            val jitter = (Math.random().toFloat() * 0.08f) - 0.04f
-            val lastPoint = if (spikeData.isNotEmpty()) spikeData.last() else lastValidValue
+            val lastPoint = if (spikeData.isNotEmpty()) spikeData.last() else baseLine
 
-            val targetNext = (lastValidValue + jitter).coerceIn(0.05f, 1f)
-            val nextValue = lastPoint + (targetNext - lastPoint) * 0.4f
+            val nextValue = when {
+                // ১. যদি নতুন স্পাইক আসে, তাহলে সরাসরি উপরে উঠবে
+                currentSpike > baseLine + 0.1f -> {
+                    val spike = currentSpike
+                    currentSpike = baseLine // এক ফ্রেম পরেই রিসেট
+                    spike
+                }
+                // ২. স্পাইকের পর নিচে নামার লজিক (Sharp Drop)
+                lastPoint > baseLine + 0.05f -> {
+                    (lastPoint - 0.2f).coerceAtLeast(baseLine)
+                }
+                // ৩. নরমাল অবস্থায় হালকা নড়াচড়া (Idle Moving)
+                else -> {
+                    val jitter = (Math.random().toFloat() * 0.04f) - 0.02f
+                    (baseLine + jitter).coerceIn(0.08f, 0.12f)
+                }
+            }
 
-            if (spikeData.size >= 20) {
+            if (spikeData.size >= 40) {
                 spikeData.removeAt(0)
             }
             spikeData.add(nextValue)
@@ -717,44 +736,49 @@ fun AdvancedThreatRadar(liveThreat: Float) {
     }
 
     Surface(
-        modifier = Modifier.fillMaxWidth().height(160.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(160.dp),
         shape = RoundedCornerShape(20.dp),
         color = Color(0xFF0D121D),
         border = BorderStroke(1.dp, Color.White.copy(0.05f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(top = 20.dp, bottom = 10.dp, start = 10.dp, end = 10.dp)) {
-                val gridColor = Color.DarkGray.copy(alpha = 0.3f)
-                for (i in 1..4) {
-                    val y = size.height * (i / 5f)
-                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)))
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp, vertical = 20.dp)
+            ) {
+                val gridColor = Color.White.copy(alpha = 0.05f)
+                val verticalStep = size.height / 4
+                for (i in 0..4) {
+                    drawLine(gridColor, Offset(0f, i * verticalStep), Offset(size.width, i * verticalStep), strokeWidth = 1f)
                 }
 
                 val path = Path()
-                val fillPath = Path()
-                val step = size.width / (if (spikeData.size > 1) spikeData.size - 1 else 1)
+                val step = size.width / (spikeData.size - 1)
 
-                if (spikeData.isNotEmpty()) {
-                    path.moveTo(0f, size.height * (1f - spikeData[0]))
-                    fillPath.moveTo(0f, size.height)
-                    fillPath.lineTo(0f, size.height * (1f - spikeData[0]))
+                path.moveTo(0f, size.height * (1f - spikeData[0]))
 
-                    for (i in 1 until spikeData.size) {
-                        val x = i * step
-                        val y = size.height * (1f - spikeData[i])
-                        path.lineTo(x, y)
-                        fillPath.lineTo(x, y)
-                    }
-                    fillPath.lineTo(size.width, size.height)
-                    fillPath.close()
-
-                    drawPath(path = fillPath, brush = Brush.verticalGradient(listOf(NeonPurple.copy(alpha = 0.6f), Color.Transparent)))
-                    drawPath(path = path, brush = Brush.horizontalGradient(listOf(NeonCyan, NeonPurple, Color.Red)), style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                for (i in 1 until spikeData.size) {
+                    val x = i * step
+                    val y = size.height * (1f - spikeData[i])
+                    path.lineTo(x, y)
                 }
+
+                drawPath(
+                    path = path,
+                    brush = Brush.horizontalGradient(
+                        listOf(NeonCyan, NeonPurple, Color.Red)
+                    ),
+                    style = Stroke(width = 4f, join = StrokeJoin.Miter, cap = StrokeCap.Round)
+                )
             }
+
             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("REAL-TIME", color = NeonCyan, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Text("PING: 14ms", color = Color.Gray, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                Text("INTELLIGENCE RADAR", color = NeonCyan.copy(0.7f), fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Text("LIVE MONITOR", color = Color.Gray, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
             }
         }
     }

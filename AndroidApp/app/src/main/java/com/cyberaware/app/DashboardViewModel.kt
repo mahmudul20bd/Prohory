@@ -17,12 +17,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import ua.naiksoftware.stomp.Stomp
 import ua.naiksoftware.stomp.StompClient
-import ua.naiksoftware.stomp.dto.StompHeader // 🔥 NEW IMPORT
-import kotlin.random.Random
+import ua.naiksoftware.stomp.dto.StompHeader
 
 class DashboardViewModel : ViewModel() {
 
-    // 🔥 THE MAGIC FIX: replay = 1 ensures the logout signal is NEVER missed by the UI
     private val _sessionExpired = MutableSharedFlow<Boolean>(replay = 1)
     val sessionExpired: SharedFlow<Boolean> = _sessionExpired.asSharedFlow()
 
@@ -32,51 +30,39 @@ class DashboardViewModel : ViewModel() {
     private val _dashboardStats = MutableStateFlow<DashboardStats?>(null)
     val dashboardStats: StateFlow<DashboardStats?> = _dashboardStats
 
-    private val _liveThreatLevel = MutableStateFlow(0.1f)
-    val liveThreatLevel: StateFlow<Float> = _liveThreatLevel
+    private val _liveThreatLevel = MutableStateFlow<Float?>(null)
+    val liveThreatLevel: StateFlow<Float?> = _liveThreatLevel
 
     private val _recentLogs = MutableStateFlow<List<SystemLog>>(emptyList())
     val recentLogs: StateFlow<List<SystemLog>> = _recentLogs
 
     private var stompClient: StompClient? = null
+    private var coolDownStarted = false
 
-    init {
+    private fun ensureCoolDownEngine() {
+        if (coolDownStarted) return
+        coolDownStarted = true
         startCoolDownEngine()
     }
 
     fun loadDashboardData(token: String, username: String, role: String) {
         viewModelScope.launch {
             try {
-                // ১. Profile Check
                 val profileResponse = RetrofitClient.apiService.getUserProfile("Bearer $token")
                 if (profileResponse.code() == 401) {
-                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
+                    _sessionExpired.emit(true)
                     return@launch
                 }
                 if (profileResponse.isSuccessful) _userProfile.value = profileResponse.body()
 
-                // ২. Stats Check
                 val statsResponse = RetrofitClient.apiService.getDashboardStats("Bearer $token")
-                if (statsResponse.code() == 401) {
-                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
-                    return@launch
-                }
                 if (statsResponse.isSuccessful) {
-                    val stats = statsResponse.body()
-                    _dashboardStats.value = stats
-
-                    val recentThreats = stats?.blockedScams ?: 0
-                    if (recentThreats > 5) {
-                        _liveThreatLevel.value = 0.6f
-                    }
+                    _dashboardStats.value = statsResponse.body()
+                    // Stats load hobar por engine ensure kora hobe kintu spike hobe na
+                    ensureCoolDownEngine()
                 }
 
-                // ৩. Logs Check
                 val logsResponse = RetrofitClient.apiService.getNeuralLogs("Bearer $token")
-                if (logsResponse.code() == 401) {
-                    _sessionExpired.emit(true) // 🔥 Token Expired! Trigger Logout
-                    return@launch
-                }
                 if (logsResponse.isSuccessful && logsResponse.body() != null) {
                     val allLogs = logsResponse.body()!!
                     val filteredLogs = if (role.uppercase() == "ADMIN" || role.uppercase() == "ROOT") {
@@ -93,27 +79,24 @@ class DashboardViewModel : ViewModel() {
     }
 
     @SuppressLint("CheckResult")
-    fun connectWebSocket(token: String) { // 🔥 FIX: Receive token to authenticate WebSocket
+    fun connectWebSocket(token: String) {
         val wsUrl = "wss://cyber-aware.onrender.com/ws/websocket"
-
         stompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl)
-
-        // Send Token in WebSocket Connection Header to stop backend rejection spam
         val authHeader = if (token.startsWith("Bearer ")) token else "Bearer $token"
         val headers = listOf(StompHeader("Authorization", authHeader))
 
         stompClient?.connect(headers)
+        ensureCoolDownEngine()
 
         stompClient?.topic("/topic/alerts")?.subscribe({ topicMessage ->
             val payload = topicMessage.payload.uppercase()
             Log.d("WebSocket", "Real Threat Received: $payload")
 
+            // 🔥 WEB SOCKET THEKE THREAT ASLEI SPIKE HOBE
             if (payload.contains("DANGER") || payload.contains("SCAM") || payload.contains("CRITICAL")) {
-                _liveThreatLevel.value = 0.95f
-            } else if (payload.contains("WARNING")) {
-                _liveThreatLevel.value = 0.6f
-            } else {
-                _liveThreatLevel.value = 0.3f
+                _liveThreatLevel.value = 0.98f
+            } else if (payload.contains("WARNING") || payload.contains("SPAM")) {
+                _liveThreatLevel.value = 0.65f
             }
         }, { error ->
             Log.e("WebSocket", "Connection Error: ", error)
@@ -123,13 +106,14 @@ class DashboardViewModel : ViewModel() {
     private fun startCoolDownEngine() {
         viewModelScope.launch {
             while (true) {
-                delay(1000)
-                val current = _liveThreatLevel.value
+                delay(1200)
+                val current = _liveThreatLevel.value ?: 0.1f
 
+                // যখনি স্পাইক শেষ হবে, এটি দ্রুত ০.১ এ ফিরে আসবে
                 if (current > 0.15f) {
-                    _liveThreatLevel.value = current - 0.08f
+                    _liveThreatLevel.value = current - 0.3f // Fast drop for sharp spike
                 } else {
-                    _liveThreatLevel.value = 0.08f + (Random.nextFloat() * 0.04f)
+                    _liveThreatLevel.value = 0.1f
                 }
             }
         }

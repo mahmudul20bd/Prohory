@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.core.*
@@ -28,7 +27,7 @@ import com.cyberaware.app.ui.theme.CyberAwareTheme
 import com.cyberaware.app.ui.theme.NeonBlue
 import com.cyberaware.app.ui.theme.NeonCyan
 import kotlinx.coroutines.delay
-import androidx.fragment.app.FragmentActivity // BiometricPrompt needs FragmentActivity
+import androidx.fragment.app.FragmentActivity
 
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : FragmentActivity() {
@@ -46,24 +45,24 @@ class SplashActivity : FragmentActivity() {
 fun SplashScreen() {
     val context = LocalContext.current as FragmentActivity
 
-    var bootingText by remember { mutableStateOf("Initializing Core Systems...") }
+    // 🔥 FIX: User friendly loading text
+    var bootingText by remember { mutableStateOf("Starting Prohory...") }
     var showSubtitle by remember { mutableStateOf(false) }
 
-    // 🔥 Restored: Beautiful Subtitle Fade-In Animation
     val subtitleAlpha by animateFloatAsState(
         targetValue = if (showSubtitle) 1f else 0f,
         animationSpec = tween(durationMillis = 1500), label = "subtitle_alpha"
     )
 
-    // 🔥 BIOMETRIC LOGIC
     fun showBiometricPrompt(onSuccess: () -> Unit) {
         val executor = ContextCompat.getMainExecutor(context)
         val biometricPrompt = BiometricPrompt(context, executor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
-                    Toast.makeText(context, "Authentication error: $errString", Toast.LENGTH_SHORT).show()
-                    context.finish() // Close app if failed/cancelled
+                    // ইউজার ক্যানসেল করলে বা এরর দিলে লগইন পেজে পাঠিয়ে দেবে
+                    context.startActivity(Intent(context, LoginActivity::class.java))
+                    context.finish()
                 }
 
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
@@ -73,14 +72,14 @@ fun SplashScreen() {
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    Toast.makeText(context, "Authentication failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Authentication failed. Try again.", Toast.LENGTH_SHORT).show()
                 }
             })
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Secure System Login")
-            .setSubtitle("Log in using your biometric credential")
-            .setNegativeButtonText("Cancel")
+            .setTitle("Unlock Prohory") // 🔥 FIX: Simple and friendly title
+            .setSubtitle("Please verify your identity to enter securely")
+            .setNegativeButtonText("Use Password") // 🔥 FIX: Better UX than just "Cancel"
             .build()
 
         biometricPrompt.authenticate(promptInfo)
@@ -89,25 +88,21 @@ fun SplashScreen() {
     LaunchedEffect(Unit) {
         val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
 
-        // 🔥 Restored: Original Navigation States
         val isFirstTime = sharedPref.getBoolean("isFirstTime", true)
         val isLoggedIn = sharedPref.getBoolean("isLoggedIn", false)
-        val isBiometricEnabled = sharedPref.getBoolean("biometric_login", true) // Default true
+        val isBiometricEnabled = sharedPref.getBoolean("biometric_login", false)
 
-        // Trigger the subtitle animation
         showSubtitle = true
 
-        // Terminal Typing Animation
-        delay(800); bootingText = "Loading Cyber Neural Engine..."
-        delay(800); bootingText = "Connecting to Satellite Server..."
-        delay(1000); bootingText = "Bypassing Security Protocols..."
-        delay(600); bootingText = "Access Granted."
+        // 🔥 FIX: Replaced hacker terms with user-friendly security terms
+        delay(800); bootingText = "Checking system security..."
+        delay(800); bootingText = "Updating threat database..."
+        delay(1000); bootingText = "Activating SMS shield..."
+        delay(600); bootingText = "Ready to protect."
         delay(500)
 
-        // 🔥 Restored: Smart Navigation (Slider -> Login -> Biometric Dashboard)
         when {
             isFirstTime -> {
-                // Show Onboarding Slider for the first time
                 context.startActivity(Intent(context, OnboardingActivity::class.java))
                 context.finish()
             }
@@ -123,7 +118,6 @@ fun SplashScreen() {
                 }
             }
             else -> {
-                // If not logged in, go to Login
                 context.startActivity(Intent(context, LoginActivity::class.java))
                 context.finish()
             }
@@ -138,7 +132,6 @@ fun SplashScreen() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
 
-            // Lottie Animation
             val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.scan_anim))
             Box(contentAlignment = Alignment.Center) {
                 LottieAnimation(
@@ -150,7 +143,6 @@ fun SplashScreen() {
 
             Spacer(modifier = Modifier.height(30.dp))
 
-            // Main Title
             Text(
                 text = "PROHORY",
                 color = NeonBlue,
@@ -159,7 +151,6 @@ fun SplashScreen() {
                 letterSpacing = 8.sp
             )
 
-            // 🔥 Restored: Animated Subtitle
             Text(
                 text = "THE CYBER EYE",
                 color = Color.White,
@@ -168,18 +159,17 @@ fun SplashScreen() {
                 letterSpacing = 6.sp,
                 modifier = Modifier
                     .padding(top = 4.dp)
-                    .alpha(subtitleAlpha) // Fade-in effect
+                    .alpha(subtitleAlpha)
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Terminal Text
             Text(
                 text = bootingText,
                 color = NeonCyan,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                letterSpacing = 2.sp
+                letterSpacing = 1.sp
             )
         }
     }
