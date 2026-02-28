@@ -301,12 +301,23 @@ public class ExternalScannerService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
+            // ✅ ম্যাজিক ফিক্স: ByteArrayResource ব্যবহার করা হলো
+            org.springframework.core.io.ByteArrayResource fileAsResource = new org.springframework.core.io.ByteArrayResource(file.getBytes()) {
+                @Override
+                public String getFilename() {
+                    return file.getOriginalFilename() != null ? file.getOriginalFilename() : "scan_image.png";
+                }
+            };
+
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("file", file.getResource());
+            body.add("file", fileAsResource);
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
-            ResponseEntity<Map> response = restTemplate.postForEntity(ocrUrl, requestEntity, Map.class);
+            // OCR স্ক্যানের জন্য ডেডিকেটেড RestTemplate
+            org.springframework.web.client.RestTemplate ocrRestTemplate = new org.springframework.web.client.RestTemplate();
+
+            ResponseEntity<Map> response = ocrRestTemplate.postForEntity(ocrUrl, requestEntity, Map.class);
             return response.getBody();
 
         } catch (Exception e) {
