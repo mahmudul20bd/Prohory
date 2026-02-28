@@ -47,38 +47,40 @@ public class UserController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // 🔥 ৪. (NEW) নিজের প্রোফাইল আপডেট করা (Email Update) -- [এই মেথডটি মিসিং ছিল]
+    // 🔥 ৪. (FIXED) নিজের প্রোফাইল আপডেট করা (IDOR Vulnerability Fixed)
     @PutMapping("/profile")
-    public ResponseEntity<?> updateProfile(@RequestParam String username, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<?> updateProfile(Principal principal, @RequestBody Map<String, String> payload) {
+        if (principal == null) return ResponseEntity.status(401).body("Unauthorized");
+
+        String username = principal.getName(); // টোকেন থেকে আসল ইউজারের নাম নেওয়া হলো
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body("User not found");
 
         if (payload.containsKey("email")) {
             user.setEmail(payload.get("email"));
         }
-
         userRepository.save(user);
         return ResponseEntity.ok("Profile Updated Successfully!");
     }
 
-    // 🔥 ৫. (NEW) পাসওয়ার্ড পরিবর্তন করা -- [এই মেথডটিও মিসিং ছিল]
+    // 🔥 ৫. (FIXED) পাসওয়ার্ড পরিবর্তন করা (IDOR Vulnerability Fixed)
     @PutMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestParam String username, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<?> changePassword(Principal principal, @RequestBody Map<String, String> payload) {
+        if (principal == null) return ResponseEntity.status(401).body("Unauthorized");
+
+        String username = principal.getName(); // টোকেন থেকে নাম
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body("User not found");
 
         String oldPass = payload.get("oldPassword");
         String newPass = payload.get("newPassword");
 
-        // চেক করুন আগের পাসওয়ার্ড ঠিক আছে কিনা
         if (!passwordEncoder.matches(oldPass, user.getPassword())) {
             return ResponseEntity.badRequest().body("Incorrect Old Password!");
         }
 
-        // নতুন পাসওয়ার্ড সেট করুন
         user.setPassword(passwordEncoder.encode(newPass));
         userRepository.save(user);
-
         return ResponseEntity.ok("Password Changed Successfully!");
     }
 

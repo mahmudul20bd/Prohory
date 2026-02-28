@@ -36,6 +36,8 @@ public class SecurityConfig {
                         // 🔥 FIX: Background SMS Scanner ekhon theke token charai Cloud use korte parbe!
                         .requestMatchers("/api/scan/**").permitAll()
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers("/api/test-scan").permitAll()
+                        .requestMatchers("/api/chat/upload\n").permitAll()
                         .anyRequest().authenticated()
                 )
                 // 🔥 সেশন বন্ধ করে JWT চালু এবং ফিল্টার অ্যাড করা হলো
