@@ -1,41 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
-import { FaPaperPlane, FaUserShield, FaUserAstronaut, FaUsers, FaPaperclip, FaFolderOpen, FaTimes } from 'react-icons/fa';
+import { FaPaperPlane, FaUserShield, FaPaperclip, FaLock, FaCircle, FaShieldAlt } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Chat.css';
 
 const ExpertChat = () => {
-    // Multi-chat State
-    const [conversations, setConversations] = useState({}); 
+    const [conversations, setConversations] = useState({});
     const [activeContact, setActiveContact] = useState(null);
     const [inputValue, setInputValue] = useState("");
     const [stompClient, setStompClient] = useState(null);
-    
-    // Evidence Locker State
-    const [showLocker, setShowLocker] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+
     const fileInputRef = useRef(null);
-    
-    const currentUser = localStorage.getItem('username') || 'WebUser';
-    const role = (localStorage.getItem('role') || 'User').toLowerCase(); 
-    const token = localStorage.getItem('token'); 
-    
     const messagesEndRef = useRef(null);
     const stompClientRef = useRef(null);
 
-    // Initial setup for users
-    useEffect(() => {
-        if (role === 'user' && !activeContact) {
-            setActiveContact("Support Pool");
-        }
-    }, [role, activeContact]);
+    const currentUser = localStorage.getItem('username') || 'Expert';
+    const role = (localStorage.getItem('role') || 'Expert').toLowerCase();
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token'); 
 
+    // 🔥 WEBSOCKET CONNECTION
     useEffect(() => {
-        if (stompClientRef.current) return; 
+        if (stompClientRef.current) return;
 
         const socket = new SockJS('https://cyber-aware.onrender.com/ws');
         const client = Stomp.over(socket);
-        client.debug = null; 
+        client.debug = null; // Hide unnecessary logs
 
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -46,31 +37,22 @@ const ExpertChat = () => {
             client.subscribe('/topic/messages', (sdkEvent) => {
                 const msg = JSON.parse(sdkEvent.body);
                 
-                let contactName = null;
-                if (role === 'user') {
-                    if (msg.senderUsername !== currentUser) {
-                        setActiveContact(msg.senderUsername);
+                // Determine the contact (Who is the expert talking to?)
+                let contactName = msg.senderUsername === currentUser ? msg.receiverUsername : msg.senderUsername;
+                
+                // Avoid grouping system messages as users
+                if (contactName === 'Support Pool' || !contactName) return;
+
+                setConversations(prev => {
+                    const updated = { ...prev };
+                    if (!updated[contactName]) updated[contactName] = [];
+                    
+                    // Prevent duplicate messages
+                    if (!updated[contactName].some(m => m.id === msg.id || (m.timestamp === msg.timestamp && m.content === msg.content))) {
+                        updated[contactName] = [...updated[contactName], msg];
                     }
-                    contactName = activeContact || "Support Pool";
-                } else {
-                    contactName = msg.senderUsername === currentUser ? msg.receiverUsername : msg.senderUsername;
-                }
-
-                if (!contactName || (contactName === 'Support Pool' && role !== 'user')) {
-                    contactName = msg.senderUsername;
-                }
-
-                if (msg.senderUsername === currentUser || msg.receiverUsername === currentUser || msg.receiverUsername === 'Support Pool') {
-                    setConversations(prev => {
-                        const updated = { ...prev };
-                        if (!updated[contactName]) updated[contactName] = [];
-                        
-                        if (!updated[contactName].some(m => m.timestamp === msg.timestamp && m.content === msg.content)) {
-                            updated[contactName] = [...updated[contactName], msg];
-                        }
-                        return updated;
-                    });
-                }
+                    return updated;
+                });
             });
         }, (error) => console.error("WebSocket Error:", error));
 
@@ -80,215 +62,98 @@ const ExpertChat = () => {
                 stompClientRef.current = null;
             }
         };
-    }, [currentUser, role, token, activeContact]);
+    }, [currentUser, token]);
 
+    // Auto Scroll
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [conversations, activeContact, showLocker]);
+    }, [conversations, activeContact]);
 
-    // 🔥 Send Regular Message
-    const sendMsg = () => {
-        if (stompClient && inputValue.trim() !== "" && activeContact) {
+    // 🔥 SEND MESSAGE
+    const sendMsg = (fileUrl = null) => {
+        if (stompClient && (inputValue.trim() !== "" || fileUrl) && activeContact) {
             const msgObj = {
                 senderUsername: currentUser,
                 receiverUsername: activeContact,
-                content: inputValue,
+                content: inputValue.trim() || "Attached Evidence",
+                fileUrl: fileUrl
             };
+            
             stompClient.send("/app/chat.send", {}, JSON.stringify(msgObj));
             setInputValue("");
         }
     };
 
-    // 🔥 Handle File / Evidence Upload
-    const handleFileUpload = (e) => {
+    // 🔥 HANDLE IMAGE UPLOAD VIA REST API
+    const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Check size (limit to 2MB for websocket base64 prototype)
-        if (file.size > 2 * 1024 * 1024) {
-            alert("For secure transmission, evidence size must be under 2MB.");
-            return;
-        }
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            if (stompClient && activeContact) {
-                const msgObj = {
-                    senderUsername: currentUser,
-                    receiverUsername: activeContact,
-                    content: `Attached Encrypted Evidence: ${file.name}`,
-                    fileUrl: reader.result // Base64 encoded image
-                };
-                stompClient.send("/app/chat.send", {}, JSON.stringify(msgObj));
+        try {
+            const response = await fetch('https://cyber-aware.onrender.com/api/chat/upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': token.startsWith('Bearer') ? token : `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                sendMsg(data.fileUrl); // Send the Cloudinary URL via WebSocket
+            } else {
+                alert("Failed to upload image.");
             }
-        };
-        reader.readAsDataURL(file);
+        } catch (error) {
+            console.error("Upload error:", error);
+            alert("Error uploading file.");
+        } finally {
+            setIsUploading(false);
+            e.target.value = null; // Reset input
+        }
     };
 
     const activeMessages = activeContact ? (conversations[activeContact] || []) : [];
-    const contactList = Object.keys(conversations).filter(name => name !== currentUser && name !== 'Support Pool');
-    
-    // 🔥 Get Evidence List (Messages with images)
-    const evidenceList = activeMessages.filter(m => m.fileUrl);
-
-    // 🔥 Generate Unique Case ID based on user name
-    const getCaseId = () => {
-        if (!activeContact || activeContact === 'Support Pool') return 'PENDING';
-        const target = role === 'user' ? currentUser : activeContact;
-        return `CYB-${target.substring(0, 3).toUpperCase()}${target.length * 1024}`;
-    };
-
-    const renderChatArea = (isFullWidth) => (
-        <div className={`modern-chat-wrapper ${isFullWidth ? '' : 'chat-main-area'}`} style={{ position: 'relative' }}>
-            
-            {/* 🔥 Header with Case ID and Evidence Locker */}
-            <div className="modern-chat-header">
-                <div className="chat-avatar">
-                    {role === 'user' ? <FaUserShield /> : <FaUserAstronaut />}
-                </div>
-                <div className="chat-info" style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <h4>{activeContact === 'Support Pool' ? 'Waiting for Expert...' : activeContact}</h4>
-                        <span className="case-id-badge">CASE ID: {getCaseId()}</span>
-                    </div>
-                    <p><span className="online-indicator"></span> {activeContact === 'Support Pool' ? 'Queued' : 'Online'} | Secure</p>
-                </div>
-                
-                {/* Evidence Vault Button */}
-                {activeContact !== 'Support Pool' && (
-                    <button className="vault-btn" onClick={() => setShowLocker(!showLocker)}>
-                        <FaFolderOpen /> Evidence Vault ({evidenceList.length})
-                    </button>
-                )}
-            </div>
-
-            {/* 🔥 Evidence Locker Dropdown Panel */}
-            <AnimatePresence>
-                {showLocker && (
-                    <motion.div 
-                        initial={{ opacity: 0, y: -10 }} 
-                        animate={{ opacity: 1, y: 0 }} 
-                        exit={{ opacity: 0, y: -10 }} 
-                        className="evidence-locker-panel"
-                    >
-                        <div className="locker-header">
-                            <h5><FaFolderOpen /> SECURE VAULT</h5>
-                            <button className="close-locker" onClick={() => setShowLocker(false)}><FaTimes /></button>
-                        </div>
-                        <div className="locker-body">
-                            {evidenceList.length === 0 ? (
-                                <p className="text-secondary text-center mt-3" style={{fontSize: '0.85rem'}}>No evidence submitted yet.</p>
-                            ) : (
-                                evidenceList.map((ev, idx) => (
-                                    <div key={idx} className="evidence-item">
-                                        <img src={ev.fileUrl} alt="Evidence" />
-                                        <p>Uploaded by: {ev.senderUsername}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-            
-            <div className="modern-chat-body">
-                {activeMessages.length === 0 && (
-                    <p className="text-center text-secondary mt-5" style={{fontFamily: 'Orbitron'}}>
-                        Start transmission... Provide details of your cyber issue.
-                    </p>
-                )}
-                <AnimatePresence>
-                    {activeMessages.map((m, i) => {
-                        const isMe = m.senderUsername === currentUser;
-                        return (
-                            <motion.div 
-                                initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                key={i} 
-                                className={`chat-message-row ${isMe ? 'me' : 'other'}`}
-                            >
-                                <div className="modern-bubble">
-                                    {!isMe && <span className="msg-sender">{m.senderUsername}</span>}
-                                    <span className="msg-text">{m.content}</span>
-                                    {/* 🔥 Render Image if exists */}
-                                    {m.fileUrl && (
-                                        <div style={{marginTop: '8px'}}>
-                                            <img src={m.fileUrl} alt="attachment" className="chat-image-preview" />
-                                        </div>
-                                    )}
-                                </div>
-                            </motion.div>
-                        );
-                    })}
-                </AnimatePresence>
-                <div ref={messagesEndRef} />
-            </div>
-            
-            <div className="modern-chat-footer">
-                {/* 🔥 File Upload Input (Hidden) */}
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    style={{display: 'none'}} 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload}
-                />
-                
-                {/* Attachment Button */}
-                <button 
-                    className="attach-btn" 
-                    title="Attach Proof" 
-                    onClick={() => fileInputRef.current.click()}
-                    disabled={activeContact === 'Support Pool'}
-                >
-                    <FaPaperclip />
-                </button>
-
-                <div className="modern-input-box">
-                    <input 
-                        type="text" 
-                        value={inputValue} 
-                        onChange={(e) => setInputValue(e.target.value)} 
-                        onKeyPress={(e) => e.key === 'Enter' && sendMsg()}
-                        placeholder="Type secure message..." 
-                        autoFocus
-                    />
-                </div>
-                <button onClick={sendMsg} className="modern-send-btn" disabled={!inputValue.trim()}>
-                    <FaPaperPlane style={{ marginLeft: '-2px' }} />
-                </button>
-            </div>
-        </div>
-    );
-
-    if (role === 'user') {
-        return renderChatArea(true);
-    }
+    const contactList = Object.keys(conversations);
 
     return (
-        <div className="chat-dashboard-container">
-            <div className="chat-contacts-sidebar">
-                <div className="contacts-header">
-                    <FaUsers /> ACTIVE CASES
+        <div className="expert-chat-container">
+            {/* 🛡️ LEFT SIDEBAR: Active Cases */}
+            <div className="chat-sidebar">
+                <div className="sidebar-header">
+                    <FaShieldAlt className="header-icon" />
+                    <h3>ACTIVE INCIDENTS</h3>
                 </div>
-                <div className="contacts-list">
+                
+                <div className="contact-list">
                     {contactList.length === 0 ? (
-                        <p className="text-center text-secondary mt-4" style={{fontSize: '0.85rem'}}>No active cases in queue.</p>
+                        <div className="empty-contacts">No active cases right now.</div>
                     ) : (
                         contactList.map((contact, index) => {
-                            const lastMsg = conversations[contact][conversations[contact].length - 1];
+                            const msgs = conversations[contact];
+                            const lastMsg = msgs[msgs.length - 1];
+                            const isActive = activeContact === contact;
+
                             return (
                                 <div 
                                     key={index} 
-                                    className={`contact-item ${activeContact === contact ? 'active' : ''}`}
+                                    className={`contact-card ${isActive ? 'active-card' : ''}`}
                                     onClick={() => setActiveContact(contact)}
                                 >
                                     <div className="contact-avatar">
                                         {contact.charAt(0).toUpperCase()}
+                                        <FaCircle className="online-dot" />
                                     </div>
                                     <div className="contact-info">
-                                        <h6>{contact}</h6>
-                                        <p>{lastMsg.senderUsername === currentUser ? "You: " : ""}{lastMsg.fileUrl ? "📷 Attached Evidence" : lastMsg.content}</p>
+                                        <h4>{contact}</h4>
+                                        <p className="last-msg">
+                                            {lastMsg.senderUsername === currentUser ? "You: " : ""}
+                                            {lastMsg.fileUrl ? "📷 Image Attached" : lastMsg.content}
+                                        </p>
                                     </div>
                                 </div>
                             );
@@ -297,15 +162,101 @@ const ExpertChat = () => {
                 </div>
             </div>
 
-            {activeContact ? (
-                renderChatArea(false)
-            ) : (
-                <div className="empty-chat-state">
-                    <FaUserAstronaut className="fs-1 mb-3 text-secondary" />
-                    <h4>Select a case to provide support</h4>
-                    <p>End-to-End Encrypted Secure Channel</p>
-                </div>
-            )}
+            {/* 💻 RIGHT SIDE: Chat Interface */}
+            <div className="chat-main-area">
+                {activeContact ? (
+                    <>
+                        {/* Chat Header */}
+                        <div className="chat-header">
+                            <div className="header-user-info">
+                                <div className="header-avatar"><FaUserShield /></div>
+                                <div>
+                                    <h2>{activeContact}</h2>
+                                    <p><FaLock className="lock-icon"/> Secure Encrypted Channel</p>
+                                </div>
+                            </div>
+                            <div className="case-id">CASE: #{activeContact.substring(0,4).toUpperCase()}{activeContact.length * 1024}</div>
+                        </div>
+
+                        {/* Messages Area */}
+                        <div className="messages-container">
+                            <AnimatePresence>
+                                {activeMessages.map((m, i) => {
+                                    const isMe = m.senderUsername === currentUser;
+                                    return (
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            key={i} 
+                                            className={`message-wrapper ${isMe ? 'msg-me' : 'msg-user'}`}
+                                        >
+                                            <div className="message-bubble">
+                                                {!isMe && <span className="sender-name">{m.senderUsername}</span>}
+                                                
+                                                {m.fileUrl && (
+                                                    <img src={m.fileUrl} alt="Evidence" className="chat-image" />
+                                                )}
+                                                
+                                                {m.content && m.content !== "Attached Evidence" && (
+                                                    <span className="msg-content">{m.content}</span>
+                                                )}
+                                                
+                                                <span className="msg-time">{m.timestamp || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
+                            </AnimatePresence>
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="chat-input-area">
+                            <input 
+                                type="file" 
+                                accept="image/*" 
+                                style={{display: 'none'}} 
+                                ref={fileInputRef} 
+                                onChange={handleFileUpload}
+                            />
+                            
+                            <button 
+                                className="icon-btn attach-btn" 
+                                onClick={() => fileInputRef.current.click()}
+                                disabled={isUploading}
+                            >
+                                {isUploading ? <div className="spinner"></div> : <FaPaperclip />}
+                            </button>
+
+                            <input 
+                                type="text" 
+                                className="text-input"
+                                value={inputValue} 
+                                onChange={(e) => setInputValue(e.target.value)} 
+                                onKeyPress={(e) => e.key === 'Enter' && sendMsg()}
+                                placeholder="Type response to user..." 
+                            />
+                            
+                            <button 
+                                className="icon-btn send-btn" 
+                                onClick={() => sendMsg()} 
+                                disabled={!inputValue.trim() && !isUploading}
+                            >
+                                <FaPaperPlane />
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    // Empty State (When no contact is selected)
+                    <div className="empty-chat-state">
+                        <div className="pulse-circle">
+                            <FaShieldAlt className="empty-icon" />
+                        </div>
+                        <h3>CYBER COMMAND CENTER</h3>
+                        <p>Select a case from the active incidents list to provide support.</p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

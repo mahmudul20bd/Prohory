@@ -8,12 +8,13 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import {
-  FaGlobe, FaBug, FaUserSecret, FaSignOutAlt, FaExclamationTriangle,
+  FaGlobe, FaBug, FaSignOutAlt, FaExclamationTriangle,
   FaCheckCircle, FaSearch, FaCog, FaFileUpload, FaMicrochip, FaComments
 } from 'react-icons/fa';
 
 import '../styles/Dashboard.css';
-import ExpertChat from './ExpertChat'; // 🔥 চ্যাট ইমপোর্ট করা হলো
+import ExpertChat from './ExpertChat'; 
+import Settings from './Settings'; // 🔥 Settings কম্পোনেন্ট ইমপোর্ট করা হলো
 
 function ExpertDashboard() {
 
@@ -224,7 +225,7 @@ function ExpertDashboard() {
   };
 
   // =====================================================
-  // ✅ FULL UI (Threat Map + Malware Analysis + Chat)
+  // ✅ FULL UI (Threat Map + Malware Analysis + Chat + Settings)
   // =====================================================
   return (
     <div className="dashboard-layout" style={{ background: "#050000" }}>
@@ -254,7 +255,6 @@ function ExpertDashboard() {
             <FaBug /> MALWARE ANALYSIS
           </li>
 
-          {/* 🔥 চ্যাট ট্যাব যোগ করা হলো */}
           <li
             className={`nav-item ${activeTab === "chat" ? "active" : ""}`}
             onClick={() => setActiveTab("chat")}
@@ -262,7 +262,11 @@ function ExpertDashboard() {
             <FaComments /> LIVE CHAT
           </li>
 
-          <li className="nav-item" onClick={() => navigate("/settings")}>
+          {/* 🔥 Settings ট্যাব ফিক্স করা হলো */}
+          <li 
+            className={`nav-item ${activeTab === "settings" ? "active" : ""}`} 
+            onClick={() => setActiveTab("settings")}
+          >
             <FaCog /> SETTINGS
           </li>
         </ul>
@@ -278,7 +282,10 @@ function ExpertDashboard() {
         {/* HEADER */}
         <header className="dashboard-header">
           <h2 className="text-white" style={{ fontFamily: "Orbitron" }}>
-            {activeTab === "threat-map" ? "THREAT INTELLIGENCE" : activeTab === "malware" ? "MALWARE LAB" : "SECURE COMMUNICATION"}
+            {activeTab === "threat-map" ? "THREAT INTELLIGENCE" : 
+             activeTab === "malware" ? "MALWARE LAB" : 
+             activeTab === "chat" ? "SECURE COMMUNICATION" : 
+             "SYSTEM SETTINGS"}
           </h2>
         </header>
 
@@ -422,10 +429,17 @@ function ExpertDashboard() {
           </motion.div>
         )}
 
-        {/* 🔥 VIEW: LIVE CHAT */}
+        {/* VIEW: LIVE CHAT */}
         {activeTab === 'chat' && (
           <motion.div initial={{opacity: 0, y: 20}} animate={{opacity: 1, y: 0}} className="p-3">
             <ExpertChat />
+          </motion.div>
+        )}
+
+        {/* 🔥 VIEW: SETTINGS */}
+        {activeTab === 'settings' && (
+          <motion.div initial={{opacity: 0, y: 20}} animate={{opacity: 1, y: 0}} className="p-3">
+            <Settings />
           </motion.div>
         )}
 
