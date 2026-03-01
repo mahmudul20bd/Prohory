@@ -8,7 +8,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController; // 🔥 @Controller এর বদলে @RestController ব্যবহার করুন
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,20 +23,21 @@ public class ChatController {
     @MessageMapping("/chat.send")
     @SendTo("/topic/messages")
     public ChatMessage processMessage(@Payload ChatMessage message) {
-        // টাইম ফরম্যাট সেট করা হচ্ছে
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("hh:mm a");
         message.setTimestamp(LocalDateTime.now().format(formatter));
-
-        // 🔥 মেসেজটি ডাটাবেসে পার্মানেন্টলি সেভ করা হচ্ছে
         chatMessageRepository.save(message);
-
         return message;
     }
 
-    // 🔥 ফ্রন্টএন্ড বা অ্যান্ড্রয়েড থেকে পূর্বের চ্যাট হিস্ট্রি লোড করার জন্য API
+    // ইউজারের নিজের হিস্ট্রি লোড করার জন্য
     @GetMapping("/api/chat/history/{username}")
     public List<ChatMessage> getChatHistory(@PathVariable String username) {
-        // এই ইউজার যে মেসেজগুলো পাঠিয়েছে বা রিসিভ করেছে সব রিটার্ন করবে
         return chatMessageRepository.findBySenderUsernameOrReceiverUsername(username, username);
+    }
+
+    // 🔥 নতুন: এক্সপার্টদের জন্য ডাটাবেসের সব চ্যাট হিস্ট্রি একসাথে লোড করার API
+    @GetMapping("/api/chat/all")
+    public List<ChatMessage> getAllChats() {
+        return chatMessageRepository.findAll();
     }
 }
