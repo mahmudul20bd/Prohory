@@ -100,4 +100,17 @@ public class User {
 
     public String getNidFile() { return nidFile; }
     public void setNidFile(String nidFile) { this.nidFile = nidFile; }
+
+    @Column(columnDefinition = "TEXT")
+    private String aboutMe;
+
+    @Column(columnDefinition = "TEXT")
+    private String coverImage;
+
+    // Getters and Setters
+    public String getAboutMe() { return aboutMe; }
+    public void setAboutMe(String aboutMe) { this.aboutMe = aboutMe; }
+
+    public String getCoverImage() { return coverImage; }
+    public void setCoverImage(String coverImage) { this.coverImage = coverImage; }
 }

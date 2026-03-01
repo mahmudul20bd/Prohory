@@ -63,7 +63,7 @@ public class UserController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // ৫. নিজের প্রোফাইল আপডেট করা
+    // ৫. নিজের প্রোফাইল আপডেট করা (Updated to include About Me & Cover)
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(Principal principal, @RequestBody Map<String, String> payload) {
         if (principal == null) return ResponseEntity.status(401).body("Unauthorized");
@@ -72,12 +72,16 @@ public class UserController {
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body("User not found");
 
-        if (payload.containsKey("email")) {
-            user.setEmail(payload.get("email"));
-        }
+        if (payload.containsKey("email")) user.setEmail(payload.get("email"));
+        if (payload.containsKey("aboutMe")) user.setAboutMe(payload.get("aboutMe"));
+        if (payload.containsKey("profileImage")) user.setProfileImage(payload.get("profileImage"));
+        if (payload.containsKey("coverImage")) user.setCoverImage(payload.get("coverImage"));
+
         userRepository.save(user);
         return ResponseEntity.ok("Profile Updated Successfully!");
     }
+
+
 
     // ৬. পাসওয়ার্ড পরিবর্তন করা
     @PutMapping("/change-password")
@@ -100,22 +104,26 @@ public class UserController {
         return ResponseEntity.ok("Password Changed Successfully!");
     }
 
-    // ৭. লগ-ইন করা ইউজারের নিজের প্রোফাইল ডেটা ফেচ করা
+    // ৭. লগ-ইন করা ইউজারের নিজের প্রোফাইল ডেটা ফেচ করা (Updated)
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Principal principal) {
-        if (principal == null) {
-            return ResponseEntity.status(401).body("Unauthorized Access");
-        }
+        if (principal == null) return ResponseEntity.status(401).body("Unauthorized Access");
 
         String username = principal.getName();
 
         return userRepository.findByUsername(username).map(user -> {
             Map<String, Object> profile = new HashMap<>();
             profile.put("username", user.getUsername());
+            profile.put("email", user.getEmail());
             profile.put("role", user.getRole() != null ? user.getRole() : "User");
             profile.put("clearanceLevel", user.getClearanceLevel() != null ? user.getClearanceLevel() : "Level 1");
             profile.put("isApproved", user.isApproved());
+            profile.put("specialization", user.getSpecialization());
+            profile.put("aboutMe", user.getAboutMe());
             profile.put("profileImage", user.getProfileImage());
+            profile.put("coverImage", user.getCoverImage());
+            profile.put("averageRating", user.getAverageRating());
+            profile.put("ratingCount", user.getRatingCount());
 
             return ResponseEntity.ok(profile);
         }).orElse(ResponseEntity.notFound().build());
