@@ -38,6 +38,8 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/test-scan").permitAll()
                         .requestMatchers("/api/chat/upload\n").permitAll()
+                        .requestMatchers("/api/chat/history/**").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 // 🔥 সেশন বন্ধ করে JWT চালু এবং ফিল্টার অ্যাড করা হলো
