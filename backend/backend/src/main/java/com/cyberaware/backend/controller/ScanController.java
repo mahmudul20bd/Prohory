@@ -1,7 +1,9 @@
 package com.cyberaware.backend.controller;
 
 import com.cyberaware.backend.model.Report;
+import com.cyberaware.backend.model.SystemLog;
 import com.cyberaware.backend.repository.ReportRepository;
+import com.cyberaware.backend.repository.SystemLogRepository;
 import com.cyberaware.backend.service.SpamDetector;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,68 +25,76 @@ public class ScanController {
     @Autowired
     private ReportRepository reportRepository;
 
-    // 📩 ১. Text বা SMS স্ক্যান করার API (Android App থেকে কল হবে)
+    @Autowired
+    private SystemLogRepository logRepository; // 🔥 FIX: Log সেভ করার জন্য
+
     @PostMapping("/text")
     public ResponseEntity<?> scanText(@RequestBody Map<String, String> payload) {
         String message = payload.get("message");
-        String username = payload.get("username"); // 🔥 Fetching username if provided
+        String username = payload.get("username");
 
         if (message == null || message.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Message cannot be empty"));
         }
 
         String result = spamDetector.checkForScam(message);
+        String finalUsername = (username != null && !username.isEmpty()) ? username : "App User";
 
-        // 🔥 FIX: শুধুমাত্র SPAM, DANGER বা SCAM হলেই ডাটাবেসে সেভ হবে
-        if (result != null && (result.toUpperCase().contains("SPAM") || result.toUpperCase().contains("DANGER") || result.toUpperCase().contains("SCAM"))) {
-            try {
-                Report report = new Report();
-                report.setReporter(username != null ? username : "App User");
-                report.setSender("Manual Text Scan");
-                report.setMessage(message);
-                report.setAiResult(result);
-                report.setTimestamp(LocalDateTime.now());
-                reportRepository.save(report);
-            } catch (Exception e) {
-                System.err.println("Error saving text scan report: " + e.getMessage());
-            }
+        // 🔥 FIX: SPAM, DANGER, PROMO বা SAFE যা-ই হোক, ড্যাশবোর্ড লগের জন্য সেভ করা হচ্ছে
+        try {
+            Report report = new Report();
+            report.setReporter(finalUsername);
+            report.setSender("Manual Text Scan");
+            report.setMessage(message);
+            report.setAiResult(result);
+            report.setTimestamp(LocalDateTime.now());
+            reportRepository.save(report);
+
+            // 🔥 FIX: ড্যাশবোর্ডের "Active Threat Patterns" এবং "Recent Logs" এ দেখানোর জন্য লগ তৈরি
+            String logAction = result.equalsIgnoreCase("SAFE") ? "SAFE_SCAN" : "THREAT_" + result.toUpperCase();
+            logRepository.save(new SystemLog(logAction, finalUsername, "Text scan resulted in: " + result));
+
+        } catch (Exception e) {
+            System.err.println("Error saving text scan report: " + e.getMessage());
         }
 
         Map<String, String> response = new HashMap<>();
-        response.put("result", result); // SAFE, PROMO, SPAM, DANGER
+        response.put("result", result);
 
         return ResponseEntity.ok(response);
     }
 
-    // 📸 ২. Image বা Screenshot (OCR) স্ক্যান করার API (Android App থেকে কল হবে)
     @PostMapping("/image")
     public ResponseEntity<?> scanImage(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "username", required = false) String username) { // 🔥 Username is optional
+            @RequestParam(value = "username", required = false) String username) {
 
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Image file is empty"));
         }
 
         String result = spamDetector.checkImageForScam(file);
+        String finalUsername = (username != null && !username.isEmpty()) ? username : "App User";
 
-        // 🔥 FIX: শুধুমাত্র SPAM, DANGER বা SCAM হলেই ডাটাবেসে সেভ হবে
-        if (result != null && (result.toUpperCase().contains("SPAM") || result.toUpperCase().contains("DANGER") || result.toUpperCase().contains("SCAM"))) {
-            try {
-                Report report = new Report();
-                report.setReporter(username != null ? username : "App User");
-                report.setSender("OCR Image Scanner");
-                report.setMessage("Image Scan: " + file.getOriginalFilename());
-                report.setAiResult(result);
-                report.setTimestamp(LocalDateTime.now());
-                reportRepository.save(report);
-            } catch (Exception e) {
-                System.err.println("Error saving image scan report: " + e.getMessage());
-            }
+        try {
+            Report report = new Report();
+            report.setReporter(finalUsername);
+            report.setSender("OCR Image Scanner");
+            report.setMessage("Image Scan: " + file.getOriginalFilename());
+            report.setAiResult(result);
+            report.setTimestamp(LocalDateTime.now());
+            reportRepository.save(report);
+
+            // 🔥 FIX: ড্যাশবোর্ডের "Active Threat Patterns" এবং "Recent Logs" এ দেখানোর জন্য লগ তৈরি
+            String logAction = result.equalsIgnoreCase("SAFE") ? "SAFE_SCAN" : "THREAT_" + result.toUpperCase();
+            logRepository.save(new SystemLog(logAction, finalUsername, "Image scan resulted in: " + result));
+
+        } catch (Exception e) {
+            System.err.println("Error saving image scan report: " + e.getMessage());
         }
 
         Map<String, String> response = new HashMap<>();
-        response.put("result", result); // SAFE, PROMO, SPAM, DANGER
+        response.put("result", result);
 
         return ResponseEntity.ok(response);
     }

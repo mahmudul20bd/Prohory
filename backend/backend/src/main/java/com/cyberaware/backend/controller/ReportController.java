@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin("*") // 🔥 CORS Error फিক্স করার জন্য
+@CrossOrigin("*")
 public class ReportController {
 
     @Autowired
@@ -68,7 +68,6 @@ public class ReportController {
         String threatType = "Safe Scan";
 
         if ("DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult)) {
-            // NullPointerException এড়ানোর জন্য চেক
             String msgLow = savedReport.getMessage() != null ? savedReport.getMessage().toLowerCase() : "";
 
             if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) {
@@ -85,12 +84,16 @@ public class ReportController {
             emailService.sendAlertEmail(savedReport.getSender(), savedReport.getMessage(), aiResult);
             notificationService.sendGlobalAlert("CRITICAL THREAT DETECTED", "User " + savedReport.getSender() + " encountered a " + aiResult + " message.", aiResult, savedReport);
 
+            // 🔥 FIX: লগ সেভ হচ্ছে যাতে ড্যাশবোর্ডে "Threat Patterns" এবং "System Logs" এ দেখায়
             String logDetails = String.format("AI flagged %s. Device: %s (OS: %s). Location Confidence: %.2f", aiResult, savedReport.getDeviceModel(), savedReport.getOsVersion(), confidenceScore);
             logRepository.save(new SystemLog("THREAT_DETECTED", savedReport.getSender(), logDetails));
 
             notificationService.sendMapTelemetryAlert(finalRegion, true, threatType, confidenceScore, heatPoints);
         } else {
             notificationService.sendGlobalAlert("NEW SAFE REPORT", "User " + savedReport.getSender() + " submitted a SAFE message.", aiResult, savedReport);
+
+            // 🔥 FIX: Safe স্ক্যান হলেও লগ সেভ হবে, যাতে ইউজারের হিস্ট্রিতে দেখায়
+            logRepository.save(new SystemLog("SAFE_SCAN", savedReport.getSender(), "Safe content scanned."));
             notificationService.sendMapTelemetryAlert(finalRegion, false, "Safe Scan", confidenceScore, 0);
         }
 
@@ -104,8 +107,9 @@ public class ReportController {
     public ResponseEntity<Map<String, Object>> scanSmsOnline(@RequestBody Map<String, String> payload, HttpServletRequest request) {
         String messageBody = payload.getOrDefault("message", "");
         String region = payload.getOrDefault("region", "UNKNOWN");
+        String username = payload.getOrDefault("username", "SYSTEM_AUTO"); // Username fetch
 
-        // 🚀 এখানেও Zero-Trust Location (No Dhaka Hardcoded)
+        // 🚀 Zero-Trust Location
         String finalRegion;
         double confidenceScore;
 
@@ -129,7 +133,8 @@ public class ReportController {
 
             notificationService.sendMapTelemetryAlert(finalRegion, true, "Phishing SMS Detected", confidenceScore, heatPoints);
 
-            logRepository.save(new SystemLog("TELEMETRY_ALERT", "SYSTEM_AUTO", "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
+            // 🔥 FIX: Background SMS এর লগ সেভ হচ্ছে ড্যাশবোর্ডের জন্য
+            logRepository.save(new SystemLog("TELEMETRY_ALERT", username, "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -168,7 +173,6 @@ public class ReportController {
         return "UNKNOWN";
     }
 
-    // --- অন্যান্য Get/Put এন্ডপয়েন্ট (অপরিবর্তিত) ---
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
@@ -193,7 +197,6 @@ public class ReportController {
                 .collect(Collectors.toList());
     }
 
-    // 🔥 FIX: Android App & Web Dashboard এর হিস্ট্রির জন্য reporter কলাম চেক করে আনা হচ্ছে
     @GetMapping("/reports/user")
     public ResponseEntity<List<Report>> getUserReports(@RequestParam String username) {
         List<Report> userReports = reportRepository.findAll().stream()
