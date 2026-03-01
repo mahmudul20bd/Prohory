@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin("*")
 public class ReportController {
 
     @Autowired
@@ -48,8 +47,6 @@ public class ReportController {
         report.setTimestamp(LocalDateTime.now());
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
-
-        // 🔥 আপডেট: ম্যানুয়াল স্ক্যানের ক্ষেত্রে মেসেজ আর হাইড হবে না, ফুল মেসেজটাই ডাটাবেসে সেভ হবে
         Report savedReport = reportRepository.save(report);
 
         // 🚀 ZERO-TRUST LOCATION HANDLING
@@ -93,7 +90,6 @@ public class ReportController {
             notificationService.sendMapTelemetryAlert(finalRegion, true, threatType, confidenceScore, heatPoints);
         } else {
             notificationService.sendGlobalAlert("NEW SAFE REPORT", "User " + savedReport.getSender() + " submitted a SAFE message.", aiResult, savedReport);
-            logRepository.save(new SystemLog("SAFE_SCAN", savedReport.getSender(), "Safe content scanned."));
             notificationService.sendMapTelemetryAlert(finalRegion, false, "Safe Scan", confidenceScore, 0);
         }
 
@@ -108,9 +104,8 @@ public class ReportController {
         String messageBody = payload.getOrDefault("message", "");
         String region = payload.getOrDefault("region", "UNKNOWN");
         String username = payload.getOrDefault("username", "SYSTEM_AUTO");
-        String sender = payload.getOrDefault("sender", "Unknown");
 
-        // 🚀 Zero-Trust Location
+        // 🚀 এখানেও Zero-Trust Location (No Dhaka Hardcoded)
         String finalRegion;
         double confidenceScore;
 
@@ -126,20 +121,19 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(messageBody);
         boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
 
-        // 🔥 FIX: ড্যাশবোর্ডে ডাটা দেখানোর জন্য Safe এবং Spam দুটোই সেভ হবে (প্রাইভেসি বজায় রেখে)
+        // 🔥 FIX: ড্যাশবোর্ডের কাউন্টার আপডেট করার জন্য স্ক্যান ডাটাবেসে সেভ করা হচ্ছে
         try {
             Report report = new Report();
-            report.setReporter(username);
+            // আপনার কোডের findBySender লজিকের সাথে সামঞ্জস্য রাখতে username টি sender হিসেবে সেভ করা হলো
+            report.setSender(username);
             report.setAiResult(aiResult);
             report.setTimestamp(LocalDateTime.now());
             report.setRegion(finalRegion);
 
             if (isSpam) {
-                report.setSender(sender);
-                report.setMessage(messageBody); // স্প্যাম হলে অরিজিনাল ডাটা সেভ হবে
+                report.setMessage(messageBody);
             } else {
-                report.setSender("Private SMS");
-                report.setMessage("Safe Background SMS (Private)"); // সেফ হলে প্রাইভেট টেক্সট সেভ হবে
+                report.setMessage("Safe Background SMS (Private)"); // প্রাইভেসি ঠিক রাখা হলো
             }
             reportRepository.save(report);
 
@@ -154,7 +148,8 @@ public class ReportController {
             else if (!msgLow.contains("bit.ly") && !msgLow.contains("http") && !msgLow.contains("lottery")) heatPoints = 1;
 
             notificationService.sendMapTelemetryAlert(finalRegion, true, "Phishing SMS Detected", confidenceScore, heatPoints);
-            logRepository.save(new SystemLog("TELEMETRY_ALERT", username, "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
+
+            logRepository.save(new SystemLog("TELEMETRY_ALERT", "SYSTEM_AUTO", "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -193,6 +188,7 @@ public class ReportController {
         return "UNKNOWN";
     }
 
+    // --- অন্যান্য Get/Put এন্ডপয়েন্ট (অপরিবর্তিত) ---
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
@@ -218,12 +214,8 @@ public class ReportController {
     }
 
     @GetMapping("/reports/user")
-    public ResponseEntity<List<Report>> getUserReports(@RequestParam String username) {
-        List<Report> userReports = reportRepository.findAll().stream()
-                .filter(r -> username.equalsIgnoreCase(r.getReporter()))
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(userReports);
+    public List<Report> getUserReports(@RequestParam String username) {
+        return reportRepository.findBySender(username);
     }
 
     @PutMapping("/report/{id}")
