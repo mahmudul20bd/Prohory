@@ -112,14 +112,15 @@ public class SpamDetector {
     }
 
     // ==========================================
-    // 📸 ২. OCR Image Scanning Method
+    // 📸 ২. OCR Image Scanning Method (HYBRID DUAL-PASS)
     // ==========================================
-    public String checkImageForScam(MultipartFile file) {
+    // 🔥 FIX: 'localText' প্যারামিটারটি যুক্ত করা হলো
+    public String checkImageForScam(MultipartFile file, String localText) {
         try {
             System.out.println("\n" + "=".repeat(60));
-            System.out.println("📸 PROHORY OCR IMAGE SCANNER INITIATED");
+            System.out.println("📸 PROHORY HYBRID OCR SCANNER INITIATED");
 
-            // ১. Python-এ ছবি পাঠিয়ে টেক্সট ও AI রেজাল্ট নিয়ে আসা
+            // ১. Python-এ ছবি পাঠিয়ে টেক্সট ও AI রেজাল্ট নিয়ে আসা
             Map<String, Object> pythonResponse = externalScannerService.getOcrAndAiDecision(file);
 
             if (pythonResponse == null || !pythonResponse.containsKey("extracted_text")) {
@@ -127,15 +128,18 @@ public class SpamDetector {
                 return "SAFE";
             }
 
-            String extractedText = (String) pythonResponse.get("extracted_text");
-            // 🔥 Null Safety Fix
+            String pythonText = (String) pythonResponse.get("extracted_text");
+            // Null Safety Fix
             String aiLabel = pythonResponse.get("label") != null ? ((String) pythonResponse.get("label")).toUpperCase() : "SAFE";
 
-            System.out.println("📝 Extracted Text: " + extractedText);
+            // 🔥 The Ultimate Merge: Python এর বাংলা + Android এর ইংরেজি/লিংক
+            String mergedText = pythonText + " " + (localText != null ? localText : "");
+
+            System.out.println("📝 Merged Extracted Text: " + mergedText);
             System.out.println("🤖 [AI Image Decision]: " + aiLabel);
 
-            // ২. টেক্সট থেকে লিংক বের করা
-            List<String> rawUrls = UrlExtractor.extractUrls(extractedText);
+            // ২. জোড়া লাগানো টেক্সট থেকে লিংক বের করা
+            List<String> rawUrls = UrlExtractor.extractUrls(mergedText);
 
             if (rawUrls.isEmpty()) {
                 System.out.println("✅ No URLs found in the image. Relying solely on AI.");
@@ -158,12 +162,14 @@ public class SpamDetector {
                 String finalUrl = externalScannerService.expandUrl(url); // আনশর্ট করা
                 System.out.println("\n🌐 Analyzing URL: " + finalUrl);
 
-                // 🔥 Fake Parallelism Fixed (আসল প্যারালাল স্ক্যান)
+                // Fake Parallelism Fixed (আসল প্যারালাল স্ক্যান)
                 CompletableFuture<Boolean> gsbFuture = externalScannerService.checkGoogleSafeBrowsing(finalUrl);
                 CompletableFuture<Boolean> vtFuture = externalScannerService.checkVirusTotal(finalUrl);
                 CompletableFuture<Boolean> fileFuture = externalScannerService.checkDeadLinkOrMaliciousFile(finalUrl);
                 CompletableFuture<Integer> domainRiskFuture = externalScannerService.checkDomainRisk(finalUrl);
-                CompletableFuture<Integer> algoFuture = externalScannerService.calculateAdvancedDomainRisk(finalUrl, extractedText);
+
+                // 🔥 mergedText ব্যবহার করা হলো
+                CompletableFuture<Integer> algoFuture = externalScannerService.calculateAdvancedDomainRisk(finalUrl, mergedText);
                 CompletableFuture<Integer> whoisFuture = externalScannerService.checkDomainAgeRisk(finalUrl);
 
                 // 1. Global Intel
@@ -184,8 +190,8 @@ public class SpamDetector {
                 totalRiskScore += domainRisk;
 
                 // 4. Smart Brand & TLD Check (.xyz, etc)
-                // আগের লাইনটি মুছে এটি দিন:
-                int brandRisk = externalScannerService.checkBrandAndTldRisk(finalUrl, extractedText, aiLabel);
+                // 🔥 mergedText ব্যবহার করা হলো
+                int brandRisk = externalScannerService.checkBrandAndTldRisk(finalUrl, mergedText, aiLabel);
                 if (brandRisk > 0) System.out.println("🚩 [Brand/TLD Risk]: +" + brandRisk + " points");
                 totalRiskScore += brandRisk;
 
