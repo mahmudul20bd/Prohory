@@ -26,7 +26,7 @@ public class ScanController {
     private ReportRepository reportRepository;
 
     @Autowired
-    private SystemLogRepository logRepository; // 🔥 FIX: Log সেভ করার জন্য
+    private SystemLogRepository logRepository;
 
     @PostMapping("/text")
     public ResponseEntity<?> scanText(@RequestBody Map<String, String> payload) {
@@ -40,22 +40,23 @@ public class ScanController {
         String result = spamDetector.checkForScam(message);
         String finalUsername = (username != null && !username.isEmpty()) ? username : "App User";
 
-        // 🔥 FIX: SPAM, DANGER, PROMO বা SAFE যা-ই হোক, ড্যাশবোর্ড লগের জন্য সেভ করা হচ্ছে
-        try {
-            Report report = new Report();
-            report.setReporter(finalUsername);
-            report.setSender("Manual Text Scan");
-            report.setMessage(message);
-            report.setAiResult(result);
-            report.setTimestamp(LocalDateTime.now());
-            reportRepository.save(report);
+        // 🔥 PRIVACY FIX: Only Save if it's NOT SAFE
+        if (result != null && !result.equalsIgnoreCase("SAFE")) {
+            try {
+                Report report = new Report();
+                report.setReporter(finalUsername);
+                report.setSender("Manual Text Scan");
+                report.setMessage(message);
+                report.setAiResult(result);
+                report.setTimestamp(LocalDateTime.now());
+                reportRepository.save(report);
 
-            // 🔥 FIX: ড্যাশবোর্ডের "Active Threat Patterns" এবং "Recent Logs" এ দেখানোর জন্য লগ তৈরি
-            String logAction = result.equalsIgnoreCase("SAFE") ? "SAFE_SCAN" : "THREAT_" + result.toUpperCase();
-            logRepository.save(new SystemLog(logAction, finalUsername, "Text scan resulted in: " + result));
+                String logAction = "THREAT_" + result.toUpperCase();
+                logRepository.save(new SystemLog(logAction, finalUsername, "Text scan resulted in: " + result));
 
-        } catch (Exception e) {
-            System.err.println("Error saving text scan report: " + e.getMessage());
+            } catch (Exception e) {
+                System.err.println("Error saving text scan report: " + e.getMessage());
+            }
         }
 
         Map<String, String> response = new HashMap<>();
@@ -76,21 +77,23 @@ public class ScanController {
         String result = spamDetector.checkImageForScam(file);
         String finalUsername = (username != null && !username.isEmpty()) ? username : "App User";
 
-        try {
-            Report report = new Report();
-            report.setReporter(finalUsername);
-            report.setSender("OCR Image Scanner");
-            report.setMessage("Image Scan: " + file.getOriginalFilename());
-            report.setAiResult(result);
-            report.setTimestamp(LocalDateTime.now());
-            reportRepository.save(report);
+        // 🔥 PRIVACY FIX: Only Save if it's NOT SAFE
+        if (result != null && !result.equalsIgnoreCase("SAFE")) {
+            try {
+                Report report = new Report();
+                report.setReporter(finalUsername);
+                report.setSender("OCR Image Scanner");
+                report.setMessage("Image Scan: " + file.getOriginalFilename());
+                report.setAiResult(result);
+                report.setTimestamp(LocalDateTime.now());
+                reportRepository.save(report);
 
-            // 🔥 FIX: ড্যাশবোর্ডের "Active Threat Patterns" এবং "Recent Logs" এ দেখানোর জন্য লগ তৈরি
-            String logAction = result.equalsIgnoreCase("SAFE") ? "SAFE_SCAN" : "THREAT_" + result.toUpperCase();
-            logRepository.save(new SystemLog(logAction, finalUsername, "Image scan resulted in: " + result));
+                String logAction = "THREAT_" + result.toUpperCase();
+                logRepository.save(new SystemLog(logAction, finalUsername, "Image scan resulted in: " + result));
 
-        } catch (Exception e) {
-            System.err.println("Error saving image scan report: " + e.getMessage());
+            } catch (Exception e) {
+                System.err.println("Error saving image scan report: " + e.getMessage());
+            }
         }
 
         Map<String, String> response = new HashMap<>();
