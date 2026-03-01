@@ -37,7 +37,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/scan/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/test-scan").permitAll()
-                        .requestMatchers("/api/chat/upload\n").permitAll()
+                        .requestMatchers("/api/chat/upload").permitAll()
                         .requestMatchers("/api/chat/history/**").permitAll()
 
                         .anyRequest().authenticated()
