@@ -49,7 +49,7 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
 
-        // 🔥 FIX: Dashboard theke kora manual report shob e save hobe
+        // 🔥 আপডেট: ম্যানুয়াল স্ক্যানের ক্ষেত্রে মেসেজ আর হাইড হবে না, ফুল মেসেজটাই ডাটাবেসে সেভ হবে
         Report savedReport = reportRepository.save(report);
 
         // 🚀 ZERO-TRUST LOCATION HANDLING
@@ -70,6 +70,7 @@ public class ReportController {
         String threatType = "Safe Scan";
 
         if ("DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult)) {
+            // NullPointerException এড়ানোর জন্য চেক
             String msgLow = savedReport.getMessage() != null ? savedReport.getMessage().toLowerCase() : "";
 
             if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) {
@@ -125,7 +126,7 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(messageBody);
         boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
 
-        // 🔥 FIX: Background theke asha SMS shudhu matro SPAM ba DANGER holei Database e save hobe
+        // 🔥 FIX: Background থেকে আসা SMS শুধুমাত্র SPAM বা DANGER হলেই ডাটাবেসে সেভ হবে
         if (isSpam) {
             try {
                 Report spamReport = new Report();
