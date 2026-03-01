@@ -48,6 +48,8 @@ public class ReportController {
         report.setTimestamp(LocalDateTime.now());
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
+
+        // 🔥 FIX: Dashboard theke kora manual report shob e save hobe
         Report savedReport = reportRepository.save(report);
 
         // 🚀 ZERO-TRUST LOCATION HANDLING
@@ -84,15 +86,12 @@ public class ReportController {
             emailService.sendAlertEmail(savedReport.getSender(), savedReport.getMessage(), aiResult);
             notificationService.sendGlobalAlert("CRITICAL THREAT DETECTED", "User " + savedReport.getSender() + " encountered a " + aiResult + " message.", aiResult, savedReport);
 
-            // 🔥 FIX: লগ সেভ হচ্ছে যাতে ড্যাশবোর্ডে "Threat Patterns" এবং "System Logs" এ দেখায়
             String logDetails = String.format("AI flagged %s. Device: %s (OS: %s). Location Confidence: %.2f", aiResult, savedReport.getDeviceModel(), savedReport.getOsVersion(), confidenceScore);
             logRepository.save(new SystemLog("THREAT_DETECTED", savedReport.getSender(), logDetails));
 
             notificationService.sendMapTelemetryAlert(finalRegion, true, threatType, confidenceScore, heatPoints);
         } else {
             notificationService.sendGlobalAlert("NEW SAFE REPORT", "User " + savedReport.getSender() + " submitted a SAFE message.", aiResult, savedReport);
-
-            // 🔥 FIX: Safe স্ক্যান হলেও লগ সেভ হবে, যাতে ইউজারের হিস্ট্রিতে দেখায়
             logRepository.save(new SystemLog("SAFE_SCAN", savedReport.getSender(), "Safe content scanned."));
             notificationService.sendMapTelemetryAlert(finalRegion, false, "Safe Scan", confidenceScore, 0);
         }
@@ -107,7 +106,8 @@ public class ReportController {
     public ResponseEntity<Map<String, Object>> scanSmsOnline(@RequestBody Map<String, String> payload, HttpServletRequest request) {
         String messageBody = payload.getOrDefault("message", "");
         String region = payload.getOrDefault("region", "UNKNOWN");
-        String username = payload.getOrDefault("username", "SYSTEM_AUTO"); // Username fetch
+        String username = payload.getOrDefault("username", "SYSTEM_AUTO");
+        String sender = payload.getOrDefault("sender", "Unknown");
 
         // 🚀 Zero-Trust Location
         String finalRegion;
@@ -125,15 +125,27 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(messageBody);
         boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
 
+        // 🔥 FIX: Background theke asha SMS shudhu matro SPAM ba DANGER holei Database e save hobe
         if (isSpam) {
+            try {
+                Report spamReport = new Report();
+                spamReport.setReporter(username);
+                spamReport.setSender(sender);
+                spamReport.setMessage(messageBody);
+                spamReport.setAiResult(aiResult);
+                spamReport.setTimestamp(LocalDateTime.now());
+                spamReport.setRegion(finalRegion);
+                reportRepository.save(spamReport);
+            } catch (Exception e) {
+                System.err.println("Error saving background SMS report: " + e.getMessage());
+            }
+
             int heatPoints = 3;
             String msgLow = messageBody.toLowerCase();
             if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) heatPoints = 5;
             else if (!msgLow.contains("bit.ly") && !msgLow.contains("http") && !msgLow.contains("lottery")) heatPoints = 1;
 
             notificationService.sendMapTelemetryAlert(finalRegion, true, "Phishing SMS Detected", confidenceScore, heatPoints);
-
-            // 🔥 FIX: Background SMS এর লগ সেভ হচ্ছে ড্যাশবোর্ডের জন্য
             logRepository.save(new SystemLog("TELEMETRY_ALERT", username, "Spam blocked from " + finalRegion + ". Confidence: " + confidenceScore));
         }
 
