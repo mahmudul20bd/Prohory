@@ -299,72 +299,33 @@ public class ExternalScannerService {
 
     public Map<String, Object> getOcrAndAiDecision(MultipartFile file) {
         try {
-            // ১. ছবিকে Base64 এ কনভার্ট করা (Google Vision API এর নিয়ম অনুযায়ী)
-            String base64Image = java.util.Base64.getEncoder().encodeToString(file.getBytes());
+            // 🔥 Google Vision বাদ দিয়ে আমাদের ফ্রি Python API-তে ফিরে যাওয়া হলো
+            String ocrUrl = "https://prohory-hybrid-model.onrender.com/api/v1/scan-ocr";
 
-            // ২. Google Vision API এর বডি (JSON) তৈরি করা
-            String visionUrl = "https://vision.googleapis.com/v1/images:annotate?key=" + visionApiKey;
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
 
-            Map<String, Object> request = new HashMap<>();
-            Map<String, Object> image = new HashMap<>();
-            image.put("content", base64Image);
-
-            Map<String, Object> feature = new HashMap<>();
-            feature.put("type", "TEXT_DETECTION"); // আমরা শুধু টেক্সট চাই
-
-            Map<String, Object> annotateImageRequest = new HashMap<>();
-            annotateImageRequest.put("image", image);
-            annotateImageRequest.put("features", new Object[]{feature});
-
-            request.put("requests", new Object[]{annotateImageRequest});
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
-
-            // ৩. Google-এর সার্ভারে হিট করা (চোখের পলকে রেজাল্ট আসবে)
-            ResponseEntity<Map> visionResponse = restTemplate.postForEntity(visionUrl, entity, Map.class);
-
-            String extractedText = "";
-            if (visionResponse.getBody() != null && visionResponse.getBody().containsKey("responses")) {
-                java.util.List<Map<String, Object>> responses = (java.util.List<Map<String, Object>>) visionResponse.getBody().get("responses");
-                if (!responses.isEmpty() && responses.get(0).containsKey("textAnnotations")) {
-                    java.util.List<Map<String, Object>> textAnnotations = (java.util.List<Map<String, Object>>) responses.get(0).get("textAnnotations");
-                    if (!textAnnotations.isEmpty()) {
-                        extractedText = (String) textAnnotations.get(0).get("description");
-                    }
+            // ✅ ম্যাজিক ফিক্স: ByteArrayResource ব্যবহার করা হলো যাতে Python ঠিকমতো ফাইল সাইজ বুঝতে পারে
+            org.springframework.core.io.ByteArrayResource fileAsResource = new org.springframework.core.io.ByteArrayResource(file.getBytes()) {
+                @Override
+                public String getFilename() {
+                    return file.getOriginalFilename() != null ? file.getOriginalFilename() : "scan_image.png";
                 }
-            }
+            };
 
-            System.out.println("📝 Google Vision Extracted Text: " + extractedText);
+            org.springframework.util.MultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
+            body.add("file", fileAsResource);
 
-            if (extractedText.trim().isEmpty()) {
-                Map<String, Object> emptyRes = new HashMap<>();
-                emptyRes.put("result", "SAFE");
-                return emptyRes;
-            }
+            org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(body, headers);
 
-            // ৪. বের করা নিখুঁত টেক্সটটাকে এবার আমাদের Python AI মডেলে পাঠানো
-            Map<String, String> aiReqBody = new HashMap<>();
-            aiReqBody.put("message", extractedText);
-            HttpEntity<Map<String, String>> aiEntity = new HttpEntity<>(aiReqBody, headers);
+            // OCR স্ক্যানের জন্য ডেডিকেটেড RestTemplate
+            org.springframework.web.client.RestTemplate ocrRestTemplate = new org.springframework.web.client.RestTemplate();
 
-            ResponseEntity<Map> aiResponse = restTemplate.postForEntity(PYTHON_AI_URL, aiEntity, Map.class);
-
-            String finalVerdict = "SAFE";
-            if (aiResponse.getBody() != null && aiResponse.getBody().containsKey("label")) {
-                finalVerdict = (String) aiResponse.getBody().get("label");
-            }
-
-            // ৫. ফাইনাল রেজাল্ট রিটার্ন করা (যাতে ScanController লিংক স্ক্যান করতে পারে)
-            Map<String, Object> finalResult = new HashMap<>();
-            finalResult.put("result", finalVerdict);
-            finalResult.put("extractedText", extractedText); // ScanController এখান থেকেই লিংক খুঁজবে
-
-            return finalResult;
+            org.springframework.http.ResponseEntity<Map> response = ocrRestTemplate.postForEntity(ocrUrl, requestEntity, Map.class);
+            return response.getBody();
 
         } catch (Exception e) {
-            System.err.println("❌ Google Vision/OCR API Error: " + e.getMessage());
+            System.err.println("❌ OCR API Error: " + e.getMessage());
             return null;
         }
     }
