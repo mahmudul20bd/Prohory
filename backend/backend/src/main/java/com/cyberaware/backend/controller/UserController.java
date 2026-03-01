@@ -4,13 +4,14 @@ import com.cyberaware.backend.model.User;
 import com.cyberaware.backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder; // 🔥 এটি ইমপোর্ট করতে হবে
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-import java.security.Principal; // ইমপোর্ট নিশ্চিত করুন
+import java.security.Principal;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/users")
@@ -20,7 +21,7 @@ public class UserController {
     private UserRepository userRepository;
 
     @Autowired
-    private PasswordEncoder passwordEncoder; // 🔥 পাসওয়ার্ড এনক্রিপশনের জন্য ইনজেক্ট
+    private PasswordEncoder passwordEncoder;
 
     // ১. সব ইউজারদের লিস্ট দেখা (Admin Only)
     @GetMapping
@@ -47,12 +48,27 @@ public class UserController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // 🔥 ৪. (FIXED) নিজের প্রোফাইল আপডেট করা (IDOR Vulnerability Fixed)
+    // 🔥 ৪. এক্সপার্ট অ্যাকাউন্ট অ্যাপ্রুভ করা (NEW API FOR ADMIN)
+    @PutMapping("/{id}/approve")
+    public ResponseEntity<?> approveExpert(@PathVariable Long id) {
+        return userRepository.findById(id).map(user -> {
+            user.setApproved(true);
+            userRepository.save(user);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Expert approved successfully");
+
+            return ResponseEntity.ok(response);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // ৫. নিজের প্রোফাইল আপডেট করা
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(Principal principal, @RequestBody Map<String, String> payload) {
         if (principal == null) return ResponseEntity.status(401).body("Unauthorized");
 
-        String username = principal.getName(); // টোকেন থেকে আসল ইউজারের নাম নেওয়া হলো
+        String username = principal.getName();
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body("User not found");
 
@@ -63,12 +79,12 @@ public class UserController {
         return ResponseEntity.ok("Profile Updated Successfully!");
     }
 
-    // 🔥 ৫. (FIXED) পাসওয়ার্ড পরিবর্তন করা (IDOR Vulnerability Fixed)
+    // ৬. পাসওয়ার্ড পরিবর্তন করা
     @PutMapping("/change-password")
     public ResponseEntity<?> changePassword(Principal principal, @RequestBody Map<String, String> payload) {
         if (principal == null) return ResponseEntity.status(401).body("Unauthorized");
 
-        String username = principal.getName(); // টোকেন থেকে নাম
+        String username = principal.getName();
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body("User not found");
 
@@ -84,23 +100,65 @@ public class UserController {
         return ResponseEntity.ok("Password Changed Successfully!");
     }
 
-    // 🔥 ৬. (NEW) লগ-ইন করা ইউজারের নিজের প্রোফাইল ডেটা ফেচ করা
+    // ৭. লগ-ইন করা ইউজারের নিজের প্রোফাইল ডেটা ফেচ করা
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(401).body("Unauthorized Access");
         }
 
-        String username = principal.getName(); // JWT টোকেন থেকে নাম নিবে
+        String username = principal.getName();
 
         return userRepository.findByUsername(username).map(user -> {
-            // শুধুমাত্র দরকারি ডেটাগুলো ম্যাপ করে পাঠানো হচ্ছে
-            Map<String, String> profile = new HashMap<>();
+            Map<String, Object> profile = new HashMap<>();
             profile.put("username", user.getUsername());
             profile.put("role", user.getRole() != null ? user.getRole() : "User");
             profile.put("clearanceLevel", user.getClearanceLevel() != null ? user.getClearanceLevel() : "Level 1");
+            profile.put("isApproved", user.isApproved());
+            profile.put("profileImage", user.getProfileImage());
 
             return ResponseEntity.ok(profile);
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // ৮. Expert Rating System
+    @PostMapping("/rate-expert")
+    public ResponseEntity<?> rateExpert(@RequestBody Map<String, Object> payload) {
+        String expertUsername = (String) payload.get("expertUsername");
+
+        Object ratingObj = payload.get("rating");
+        int newRating = 0;
+        if (ratingObj instanceof Integer) {
+            newRating = (Integer) ratingObj;
+        } else if (ratingObj instanceof String) {
+            newRating = Integer.parseInt((String) ratingObj);
+        }
+
+        Optional<User> expertOpt = userRepository.findByUsername(expertUsername);
+
+        if (expertOpt.isPresent()) {
+            User expert = expertOpt.get();
+
+            int currentCount = expert.getRatingCount() != null ? expert.getRatingCount() : 0;
+            double currentAvg = expert.getAverageRating() != null ? expert.getAverageRating() : 0.0;
+
+            double totalScore = (currentAvg * currentCount) + newRating;
+            currentCount += 1;
+            double newAvg = totalScore / currentCount;
+
+            expert.setRatingCount(currentCount);
+            expert.setAverageRating(newAvg);
+
+            userRepository.save(expert);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Rating submitted successfully!");
+            response.put("newAverage", newAvg);
+
+            return ResponseEntity.ok(response);
+        }
+
+        return ResponseEntity.badRequest().body(Map.of("error", "Expert not found"));
     }
 }

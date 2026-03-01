@@ -31,18 +31,19 @@ public class AuthController {
     @Autowired
     private JwtUtil jwtUtil;
 
-    // ১. ইউজার রেজিস্ট্রেশন (Auto Agent ID Generation)
+    // ১. ইউজার রেজিস্ট্রেশন
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody User user) {
         if (userRepository.findByUsername(user.getUsername()).isPresent()) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Username is already taken!"));
         }
 
+        // 🔥 FIX: Default role ekhn theke "User" hobe (Age "Agent" chilo)
         if (user.getRole() == null || user.getRole().isEmpty()) {
-            user.setRole("Agent"); // Default Prohory Role
+            user.setRole("User");
         }
 
-        // 🔥 NEW: Generate Unique Prohory Agent ID (e.g., PRH-A1B2C)
+        // Generate Unique Prohory Agent ID (e.g., PRH-A1B2C)
         String generatedAgentId = "PRH-" + UUID.randomUUID().toString().substring(0, 5).toUpperCase();
         user.setAgentId(generatedAgentId);
 
@@ -54,10 +55,9 @@ public class AuthController {
         logRepository.save(new SystemLog(
                 "REGISTRATION",
                 savedUser.getUsername(),
-                "New Agent initialized. Assigned ID: " + savedUser.getAgentId()
+                "New User initialized. Assigned ID: " + savedUser.getAgentId()
         ));
 
-        // Return JSON with generated Agent ID
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         response.put("message", "User registered successfully!");
@@ -69,14 +69,21 @@ public class AuthController {
     // ২. ইউজার লগইন (Login with AgentID, Email, or Username)
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
-        String loginId = credentials.get("username"); // Ete AgentID/Email/Username jekono kisu thakte pare
+        String loginId = credentials.get("username"); // AgentID/Email/Username
         String password = credentials.get("password");
 
-        // 🔥 NEW: Check all three columns
         Optional<User> userOpt = userRepository.findByUsernameOrEmailOrAgentId(loginId, loginId, loginId);
 
         if (userOpt.isPresent() && passwordEncoder.matches(password, userOpt.get().getPassword())) {
             User user = userOpt.get();
+
+            // 🔥 NEW: Check if the user is an Expert but NOT approved yet
+            if ("Expert".equalsIgnoreCase(user.getRole()) && !user.isApproved()) {
+                return ResponseEntity.status(403).body(Map.of(
+                        "success", false,
+                        "message", "Your account is pending approval by the Admin. Please wait."
+                ));
+            }
 
             String token = jwtUtil.generateToken(user.getUsername());
 
@@ -84,7 +91,7 @@ public class AuthController {
             response.put("success", true);
             response.put("token", token);
             response.put("username", user.getUsername());
-            response.put("agentId", user.getAgentId()); // Send Agent ID back
+            response.put("agentId", user.getAgentId());
             response.put("role", user.getRole());
             response.put("message", "Authentication Successful");
 
