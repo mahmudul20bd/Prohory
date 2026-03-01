@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
+@CrossOrigin("*") // 🔥 CORS Error फিক্স করার জন্য
 public class ReportController {
 
     @Autowired
@@ -67,7 +68,7 @@ public class ReportController {
         String threatType = "Safe Scan";
 
         if ("DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult)) {
-            // NullPointerException এড়ানোর জন্য চেক
+            // NullPointerException এড়ানোর জন্য চেক
             String msgLow = savedReport.getMessage() != null ? savedReport.getMessage().toLowerCase() : "";
 
             if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) {
@@ -167,7 +168,7 @@ public class ReportController {
         return "UNKNOWN";
     }
 
-    // --- অন্যান্য Get/Put এন্ডপয়েন্ট (অপরিবর্তিত) ---
+    // --- অন্যান্য Get/Put এন্ডপয়েন্ট (অপরিবর্তিত) ---
     @GetMapping("/reports")
     public List<Report> getAllReports() {
         return reportRepository.findAll();
@@ -192,9 +193,14 @@ public class ReportController {
                 .collect(Collectors.toList());
     }
 
+    // 🔥 FIX: Android App & Web Dashboard এর হিস্ট্রির জন্য reporter কলাম চেক করে আনা হচ্ছে
     @GetMapping("/reports/user")
-    public List<Report> getUserReports(@RequestParam String username) {
-        return reportRepository.findBySender(username);
+    public ResponseEntity<List<Report>> getUserReports(@RequestParam String username) {
+        List<Report> userReports = reportRepository.findAll().stream()
+                .filter(r -> username.equalsIgnoreCase(r.getReporter()))
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(userReports);
     }
 
     @PutMapping("/report/{id}")
