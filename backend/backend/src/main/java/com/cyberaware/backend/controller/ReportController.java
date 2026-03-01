@@ -49,7 +49,7 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(report.getMessage());
         report.setAiResult(aiResult);
 
-        // 🔥 আপডেট: ম্যানুয়াল স্ক্যানের ক্ষেত্রে মেসেজ আর হাইড হবে না, ফুল মেসেজটাই ডাটাবেসে সেভ হবে
+        // 🔥 আপডেট: ম্যানুয়াল স্ক্যানের ক্ষেত্রে মেসেজ আর হাইড হবে না, ফুল মেসেজটাই ডাটাবেসে সেভ হবে
         Report savedReport = reportRepository.save(report);
 
         // 🚀 ZERO-TRUST LOCATION HANDLING
@@ -126,21 +126,28 @@ public class ReportController {
         String aiResult = spamDetector.checkForScam(messageBody);
         boolean isSpam = "DANGER".equalsIgnoreCase(aiResult) || "SPAM".equalsIgnoreCase(aiResult) || "SCAM".equalsIgnoreCase(aiResult);
 
-        // 🔥 FIX: Background থেকে আসা SMS শুধুমাত্র SPAM বা DANGER হলেই ডাটাবেসে সেভ হবে
-        if (isSpam) {
-            try {
-                Report spamReport = new Report();
-                spamReport.setReporter(username);
-                spamReport.setSender(sender);
-                spamReport.setMessage(messageBody);
-                spamReport.setAiResult(aiResult);
-                spamReport.setTimestamp(LocalDateTime.now());
-                spamReport.setRegion(finalRegion);
-                reportRepository.save(spamReport);
-            } catch (Exception e) {
-                System.err.println("Error saving background SMS report: " + e.getMessage());
-            }
+        // 🔥 FIX: ড্যাশবোর্ডে ডাটা দেখানোর জন্য Safe এবং Spam দুটোই সেভ হবে (প্রাইভেসি বজায় রেখে)
+        try {
+            Report report = new Report();
+            report.setReporter(username);
+            report.setAiResult(aiResult);
+            report.setTimestamp(LocalDateTime.now());
+            report.setRegion(finalRegion);
 
+            if (isSpam) {
+                report.setSender(sender);
+                report.setMessage(messageBody); // স্প্যাম হলে অরিজিনাল ডাটা সেভ হবে
+            } else {
+                report.setSender("Private SMS");
+                report.setMessage("Safe Background SMS (Private)"); // সেফ হলে প্রাইভেট টেক্সট সেভ হবে
+            }
+            reportRepository.save(report);
+
+        } catch (Exception e) {
+            System.err.println("Error saving background SMS report: " + e.getMessage());
+        }
+
+        if (isSpam) {
             int heatPoints = 3;
             String msgLow = messageBody.toLowerCase();
             if (msgLow.contains("apk") || msgLow.contains("install") || msgLow.contains("malware")) heatPoints = 5;
