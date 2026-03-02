@@ -123,17 +123,25 @@ fun LoginScreen() {
 
                                         if (response.isSuccessful && response.body()?.success == true) {
                                             val authResponse = response.body()!!
-                                            val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
-                                            with(sharedPref.edit()) {
-                                                putBoolean("isLoggedIn", true)
-                                                putString("auth_token", authResponse.token)
-                                                putString("username", authResponse.username)
-                                                putString("agentId", authResponse.agentId ?: "UNKNOWN")
-                                                apply()
+
+                                            // 🔥 FIX: Role check kora hocche. Shudhu "User" role login korte parbe
+                                            if (authResponse.role.equals("User", ignoreCase = true)) {
+                                                val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+                                                with(sharedPref.edit()) {
+                                                    putBoolean("isLoggedIn", true)
+                                                    putString("auth_token", authResponse.token)
+                                                    putString("username", authResponse.username)
+                                                    putString("agentId", authResponse.agentId ?: "UNKNOWN")
+                                                    putString("role", authResponse.role) // 🔥 Role save kora hocche
+                                                    apply()
+                                                }
+                                                Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
+                                                context.startActivity(Intent(context, DashboardActivity::class.java))
+                                                (context as? ComponentActivity)?.finish()
+                                            } else {
+                                                // Jodi Expert ba Admin login korte chay
+                                                Toast.makeText(context, "Access Denied: App is only for Users.", Toast.LENGTH_LONG).show()
                                             }
-                                            Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
-                                            context.startActivity(Intent(context, DashboardActivity::class.java))
-                                            (context as? ComponentActivity)?.finish()
                                         } else {
                                             Toast.makeText(context, "Incorrect Credentials", Toast.LENGTH_SHORT).show()
                                         }

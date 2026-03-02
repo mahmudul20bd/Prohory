@@ -1,8 +1,10 @@
 package com.cyberaware.app
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +45,7 @@ import java.io.FileOutputStream
 @Composable
 fun SettingsScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
+    val activity = context as? Activity // 🔥 FIX: Activity Context for Screenshot Protection
     val coroutineScope = rememberCoroutineScope()
     val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
     val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
@@ -50,7 +53,8 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     // 🔥 Profile States
     var agentName by remember { mutableStateOf(sharedPref.getString("username", "Unknown User") ?: "Unknown User") }
     val agentRole = sharedPref.getString("role", "User") ?: "User"
-    val agentId = sharedPref.getString("agent_id", "PRH-0000") ?: "PRH-0000"
+    // 🔥 FIX: Corrected Key from "agent_id" to "agentId" matching LoginActivity
+    val agentId = sharedPref.getString("agentId", "PRH-0000") ?: "PRH-0000"
 
     var avatarPath by remember { mutableStateOf(sharedPref.getString("avatar_path", null)) }
 
@@ -68,8 +72,7 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     // Settings States
     var biometricLogin by remember { mutableStateOf(sharedPref.getBoolean("biometric_login", false)) }
     var screenshotProtect by remember { mutableStateOf(sharedPref.getBoolean("screenshot_protect", false)) }
-    var autoScanWifi by remember { mutableStateOf(sharedPref.getBoolean("auto_scan_wifi", false
-    )) }
+    var autoScanWifi by remember { mutableStateOf(sharedPref.getBoolean("auto_scan_wifi", false)) }
     var autoClearLogs by remember { mutableStateOf(sharedPref.getBoolean("auto_clear_logs", false)) }
 
     // Real-time Health Score
@@ -83,7 +86,9 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val file = File(context.filesDir, "agent_avatar.jpg")
+                // 🔥 FIX: User specific avatar name so it doesn't overwrite globally
+                val fileName = "agent_avatar_${agentName.replace(" ", "_")}.jpg"
+                val file = File(context.filesDir, fileName)
                 val outputStream = FileOutputStream(file)
                 inputStream?.copyTo(outputStream)
                 inputStream?.close()
@@ -191,7 +196,6 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
             // 🛡️ SECURITY & PRIVACY
             SectionHeader("SECURITY & PRIVACY")
 
-            // 🔥 Password Change Option Added Here
             EnterpriseAction("Change Password", "Update your account authentication", Icons.Rounded.LockReset) {
                 currentPasswordInput = ""
                 newPasswordInput = ""
@@ -200,18 +204,39 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
             }
             Spacer(modifier = Modifier.height(10.dp))
 
-            EnterpriseToggle("Biometric App Lock", "Require fingerprint to open the app", Icons.Rounded.Fingerprint, biometricLogin, true) { biometricLogin = it; sharedPref.edit().putBoolean("biometric_login", it).apply() }
+            EnterpriseToggle("Biometric App Lock", "Require fingerprint to open the app", Icons.Rounded.Fingerprint, biometricLogin, true) {
+                biometricLogin = it
+                sharedPref.edit().putBoolean("biometric_login", it).apply()
+            }
             Spacer(modifier = Modifier.height(10.dp))
-            EnterpriseToggle("Screenshot Protection", "Prevent OS from capturing app screens", Icons.Rounded.ScreenShare, screenshotProtect, true) { screenshotProtect = it; sharedPref.edit().putBoolean("screenshot_protect", it).apply() }
+
+            // 🔥 FIX: Realtime Screenshot Protection Toggle Applied Here!
+            EnterpriseToggle("Screenshot Protection", "Prevent OS from capturing app screens", Icons.Rounded.ScreenShare, screenshotProtect, true) { isProtected ->
+                screenshotProtect = isProtected
+                sharedPref.edit().putBoolean("screenshot_protect", isProtected).apply()
+
+                if (isProtected) {
+                    activity?.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
-            EnterpriseToggle("Auto Scan Public WiFi", "Trigger scan on new network connections", Icons.Rounded.WifiProtectedSetup, autoScanWifi, true) { autoScanWifi = it; sharedPref.edit().putBoolean("auto_scan_wifi", it).apply() }
+            EnterpriseToggle("Auto Scan Public WiFi", "Trigger scan on new network connections", Icons.Rounded.WifiProtectedSetup, autoScanWifi, true) {
+                autoScanWifi = it
+                sharedPref.edit().putBoolean("auto_scan_wifi", it).apply()
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // 📊 STORAGE & DATA
             SectionHeader("STORAGE & LOGS")
 
-            EnterpriseToggle("Auto-Clear Threat Logs", "Purge intelligence data after 7 days", Icons.Rounded.AutoDelete, autoClearLogs, false) { autoClearLogs = it; sharedPref.edit().putBoolean("auto_clear_logs", it).apply() }
+            EnterpriseToggle("Auto-Clear Threat Logs", "Purge intelligence data after 7 days", Icons.Rounded.AutoDelete, autoClearLogs, false) {
+                autoClearLogs = it
+                sharedPref.edit().putBoolean("auto_clear_logs", it).apply()
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             EnterpriseAction("Clear Neural Cache", "Wipes temporary scanned threats & memory", Icons.Rounded.CleaningServices) {
@@ -336,7 +361,7 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                         } else if (newPasswordInput.length < 6) {
                             Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
                         } else {
-                            // Save new password logically
+                            // Note: This only changes it locally. Realistically you should hit an API here.
                             sharedPref.edit().putString("password", newPasswordInput).apply()
                             showPasswordDialog = false
                             Toast.makeText(context, "Password Updated Securely!", Toast.LENGTH_SHORT).show()

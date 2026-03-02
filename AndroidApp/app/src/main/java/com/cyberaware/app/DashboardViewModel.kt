@@ -48,21 +48,33 @@ class DashboardViewModel : ViewModel() {
     fun loadDashboardData(token: String, username: String, role: String) {
         viewModelScope.launch {
             try {
+                // ১. Profile Check
                 val profileResponse = RetrofitClient.apiService.getUserProfile("Bearer $token")
-                if (profileResponse.code() == 401) {
+                // 🔥 FIX: 401 (Unauthorized) এবং 403 (Forbidden) দুটোই চেক করা হলো
+                if (profileResponse.code() == 401 || profileResponse.code() == 403) {
                     _sessionExpired.emit(true)
                     return@launch
                 }
                 if (profileResponse.isSuccessful) _userProfile.value = profileResponse.body()
 
+                // ২. Stats Check
                 val statsResponse = RetrofitClient.apiService.getDashboardStats("Bearer $token")
+                if (statsResponse.code() == 401 || statsResponse.code() == 403) {
+                    _sessionExpired.emit(true)
+                    return@launch
+                }
                 if (statsResponse.isSuccessful) {
                     _dashboardStats.value = statsResponse.body()
                     // Stats load hobar por engine ensure kora hobe kintu spike hobe na
                     ensureCoolDownEngine()
                 }
 
+                // ৩. Logs Check
                 val logsResponse = RetrofitClient.apiService.getNeuralLogs("Bearer $token")
+                if (logsResponse.code() == 401 || logsResponse.code() == 403) {
+                    _sessionExpired.emit(true)
+                    return@launch
+                }
                 if (logsResponse.isSuccessful && logsResponse.body() != null) {
                     val allLogs = logsResponse.body()!!
                     val filteredLogs = if (role.uppercase() == "ADMIN" || role.uppercase() == "ROOT") {
@@ -74,10 +86,14 @@ class DashboardViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 Log.e("DashboardVM", "API Error: ${e.message}")
+
+                // 🔥 FIX: Retrofit যদি সরাসরি Exception মারে (Token Expired এর কারণে), তাহলেও ইউজারকে লগআউট করবে
+                if (e.message?.contains("401") == true || e.message?.contains("403") == true) {
+                    _sessionExpired.emit(true)
+                }
             }
         }
     }
-
     @SuppressLint("CheckResult")
     fun connectWebSocket(token: String) {
         val wsUrl = "wss://cyber-aware.onrender.com/ws/websocket"

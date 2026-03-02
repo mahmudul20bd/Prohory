@@ -80,10 +80,35 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         try {
             val response = RetrofitClient.apiService.checkSpamOnline(authHeader, telemetryPayload)
 
-            if (response.isSuccessful && response.body()?.isSpam == true) {
-                // ক্লাউড থেকে স্প্যাম আসলে ডিফল্টভাবে DANGER হিসেবেই অ্যালার্ট দেবে
-                triggerThreatAlert(context, sender, body, "Cloud Scanner", "DANGER")
-            } else if (!response.isSuccessful) {
+            // 🔥 Cloud API থেকে আসা 4-Level State হ্যান্ডেল করা
+            if (response.isSuccessful && response.body() != null) {
+                val threatLevel = response.body()?.threatLevel?.uppercase() ?: "SAFE"
+
+                when (threatLevel) {
+                    "DANGER" -> {
+                        Log.d("PROHORY_GUARD", "Cloud AI marked it as DANGER.")
+                        triggerThreatAlert(context, sender, body, "Cloud Scanner", "DANGER")
+                    }
+                    "SPAM" -> {
+                        Log.d("PROHORY_GUARD", "Cloud AI marked it as SPAM.")
+                        triggerThreatAlert(context, sender, body, "Cloud Scanner", "SPAM")
+                    }
+                    "PROMO" -> {
+                        Log.d("PROHORY_GUARD", "Cloud AI marked it as PROMO. Ignored.")
+                    }
+                    "SAFE" -> {
+                        Log.d("PROHORY_GUARD", "Cloud AI marked it as SAFE. Ignored.")
+                    }
+                    else -> {
+                        // Fallback logic
+                        if (response.body()?.isSpam == true) {
+                            triggerThreatAlert(context, sender, body, "Cloud Scanner", "DANGER")
+                        } else {
+                            runOfflineFallback(context, sender, body)
+                        }
+                    }
+                }
+            } else {
                 runOfflineFallback(context, sender, body)
             }
         } catch (e: Exception) {
@@ -104,7 +129,7 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
                 }
             }
 
-            // 🔥 4-Level PURE AI DETECTION Logic
+            // 🔥 4-Level PURE AI DETECTION Logic (Local TFLite)
             when (labelIndex) {
                 3 -> { // DANGER
                     Log.d("PROHORY_GUARD", "Offline AI marked it as DANGER.")
@@ -115,7 +140,6 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
                     triggerThreatAlert(context, sender, body, "Offline Scanner", "SPAM")
                 }
                 1 -> { // PROMO
-                    // প্রোমোশনাল মেসেজের জন্য নোটিফিকেশন দিয়ে বিরক্ত না করাই ভালো
                     Log.d("PROHORY_GUARD", "Offline AI marked it as PROMO. Ignored.")
                 }
                 else -> { // SAFE
@@ -127,15 +151,16 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
+    // 🔥 FIX: threatLevel পাস করা হলো
     private fun triggerThreatAlert(context: Context, sender: String, body: String, source: String, threatLevel: String) {
         showThreatNotification(context, sender, body, source, threatLevel)
-        saveToSmsGuard(context, sender, body)
+        saveToSmsGuard(context, sender, body, threatLevel)
     }
 
     private fun showThreatNotification(context: Context, sender: String, body: String, source: String, threatLevel: String) {
         val channelId = "PROHORY_THREAT_ALERTS"
 
-        // 🔥 4-Level AI: Threat Level অনুযায়ী কালার এবং টেক্সট পরিবর্তন
+        // 🔥 Threat Level অনুযায়ী ডাইনামিক কালার এবং টেক্সট
         val isDanger = threatLevel == "DANGER"
         val notifColor = if (isDanger) Color.RED else android.graphics.Color.parseColor("#FF9800") // Red for Danger, Orange for Spam
         val titleText = if (isDanger) "🚨 Dangerous Scam Blocked!" else "⚠️ Spam Message Detected!"
@@ -175,10 +200,14 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         catch (e: SecurityException) { Log.e("PROHORY_GUARD", "Notification Permission missing!") }
     }
 
-    private fun saveToSmsGuard(context: Context, sender: String, body: String) {
+    // 🔥 FIX: threatLevel প্যারামিটার যোগ করা হলো এবং স্ট্রিংয়ের শেষে সেভ করা হলো
+    private fun saveToSmsGuard(context: Context, sender: String, body: String, threatLevel: String) {
         val sharedPref = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
         val currentThreats = sharedPref.getStringSet("quarantine_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-        currentThreats.add("$sender|||$body|||${System.currentTimeMillis()}")
+
+        // 4th প্যারামিটার হিসেবে threatLevel যোগ করে দেওয়া হলো
+        currentThreats.add("$sender|||$body|||${System.currentTimeMillis()}|||$threatLevel")
+
         sharedPref.edit().putStringSet("quarantine_list", currentThreats).apply()
     }
 }

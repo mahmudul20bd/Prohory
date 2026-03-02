@@ -59,11 +59,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import java.util.UUID
 
 data class ThreatInsight(val icon: ImageVector, val title: String, val desc: String, val color: Color)
+
+fun saveImageScanToHistory(context: Context, content: String, threatLevel: String, sourceName: String) {
+    val sharedPref = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
+    val currentThreats = sharedPref.getStringSet("scan_history_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+
+    val logEntry = "$sourceName Entry|||$content|||${System.currentTimeMillis()}|||$threatLevel|||$sourceName"
+
+    currentThreats.add(logEntry)
+    sharedPref.edit().putStringSet("scan_history_list", currentThreats).apply()
+}
 
 class ScreenshotAnalysisActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,7 +112,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
     var extractedPhone by remember { mutableStateOf<String?>(null) }
     val scanLogs = remember { mutableStateListOf<String>() }
 
-    // scanState: 0=Idle, 1=Scanning, 2=Safe, 3=Promo, 4=Spam, 5=Danger
     var scanState by remember { mutableIntStateOf(0) }
     var dynamicRiskScore by remember { mutableIntStateOf(0) }
     var realTimeInsights by remember { mutableStateOf<List<ThreatInsight>>(emptyList()) }
@@ -156,7 +169,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                     Button(
                         onClick = {
                             if (selectedImageUri == null) {
-                                // 🔥 FIX: Button Click launches Gallery
                                 photoPickerLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             } else {
                                 scanState = 1
@@ -167,13 +179,12 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                                         extractedPhone = phone
                                         scanState = resultState
 
-                                        // 🔥 Dynamic Insights Based on 4 Classes
                                         val insights = mutableListOf<ThreatInsight>()
                                         val lowerText = text.lowercase()
 
                                         when (resultState) {
-                                            5 -> { // DANGER
-                                                dynamicRiskScore = 85 + (0..14).random() // 85% - 99%
+                                            5 -> {
+                                                dynamicRiskScore = 85 + (0..14).random()
                                                 if (lowerText.contains("bkash") || lowerText.contains("nagad") || lowerText.contains("bank") || lowerText.contains("pin")) {
                                                     insights.add(ThreatInsight(Icons.Rounded.AccountBalance, "Financial Scam", "Attempts to mimic financial institutions found.", Color.Red))
                                                 }
@@ -182,19 +193,19 @@ fun OcrScannerScreen(onBack: () -> Unit) {
                                                 }
                                                 if (insights.isEmpty()) insights.add(ThreatInsight(Icons.Rounded.Warning, "Malicious Content", "AI detected patterns matching known malware/scams.", Color.Red))
                                             }
-                                            4 -> { // SPAM
-                                                dynamicRiskScore = 50 + (0..20).random() // 50% - 70%
+                                            4 -> {
+                                                dynamicRiskScore = 50 + (0..20).random()
                                                 insights.add(ThreatInsight(Icons.Rounded.ReportProblem, "Spam Message", "Unsolicited or repetitive message detected.", Color(0xFFFF9800)))
                                                 if (lowerText.contains("free") || lowerText.contains("win") || lowerText.contains("lottery")) {
                                                     insights.add(ThreatInsight(Icons.Rounded.CardGiftcard, "Fake Reward", "Common spam tactic using false promises.", Color(0xFFFF9800)))
                                                 }
                                             }
-                                            3 -> { // PROMO
-                                                dynamicRiskScore = 15 + (0..15).random() // 15% - 30%
+                                            3 -> {
+                                                dynamicRiskScore = 15 + (0..15).random()
                                                 insights.add(ThreatInsight(Icons.Rounded.LocalOffer, "Promotional Content", "Message appears to be marketing or advertisement.", Color(0xFF3B82F6)))
                                             }
-                                            2 -> { // SAFE
-                                                dynamicRiskScore = (1..10).random() // 1% - 10%
+                                            2 -> {
+                                                dynamicRiskScore = (1..10).random()
                                                 insights.add(ThreatInsight(Icons.Rounded.Verified, "Safe Image", "No urgent, manipulative, or malicious language detected.", Color.Green))
                                             }
                                         }
@@ -280,9 +291,6 @@ fun OcrScannerScreen(onBack: () -> Unit) {
     }
 }
 
-// ==========================================
-// CORE HYBRID AI FUNCTIONS
-// ==========================================
 suspend fun runOcrAndAiAnalysis(
     context: Context,
     imageUri: Uri,
@@ -337,87 +345,117 @@ suspend fun runOcrAndAiAnalysis(
     delay(500)
 
     if (isInternetAvail(context)) {
-        runServerOcrAiAnalysis(context, extractedText, detectedPhone, logs, onResult)
+        runServerOcrAiAnalysis(context, imageUri, extractedText, detectedPhone, logs, onResult)
     } else {
         runLocalOcrTFLiteAnalysis(context, extractedText, detectedPhone, logs, onResult)
     }
 }
 
-// ==========================================
-// ONLINE CLOUD AI LOGIC
-// ==========================================
-suspend fun runServerOcrAiAnalysis(context: Context, payloadData: String, phone: String?, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int, String, String?) -> Unit) {
-    logs.add("Connecting to secure cloud server...")
-    delay(400)
-
-    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
-    val token = sharedPref.getString("auth_token", "") ?: ""
-    val reporterId = sharedPref.getString("username", "User") ?: "User"
-    val userRegion = sharedPref.getString("user_division", "") ?: ""
-
-    var deviceId = sharedPref.getString("anonymous_device_id", null)
-    if (deviceId == null) {
-        deviceId = UUID.randomUUID().toString()
-        sharedPref.edit().putString("anonymous_device_id", deviceId).apply()
+suspend fun runServerOcrAiAnalysis(
+    context: Context,
+    uri: Uri,
+    localExtractedText: String,
+    phone: String?,
+    logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>,
+    onResult: (Int, String, String?) -> Unit
+) {
+    withContext(Dispatchers.Main) {
+        logs.add("Preparing HD Image for Bangla OCR...")
     }
+
+    // 🔥 Retrieve the username and region from SharedPreferences
+    val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    val loggedInUser = sharedPref.getString("username", "Unknown User") ?: "Unknown User"
+    val savedRegion = sharedPref.getString("user_division", "UNKNOWN") ?: "UNKNOWN" // 🔥 অ্যাপ থেকে ডিভিশন নেওয়া হচ্ছে
 
     withContext(Dispatchers.IO) {
         try {
-            val payload = mapOf(
-                "sender" to "OCR Scanner",
-                "message" to payloadData,
-                "reporter" to reporterId,
-                "region" to userRegion,
-                "deviceId" to deviceId,
-                "deviceModel" to android.os.Build.MODEL,
-                "osVersion" to android.os.Build.VERSION.RELEASE
-            )
-            val response = RetrofitClient.apiService.submitSmsReport("Bearer $token", payload)
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+
+            if (originalBitmap == null) throw Exception("Failed to decode image")
+
+            val tempFile = File(context.cacheDir, "scan_image_clear.png")
+            val outputStream = java.io.FileOutputStream(tempFile)
+
+            val maxWidth = 1500f
+            val scale = if (originalBitmap.width > maxWidth) maxWidth / originalBitmap.width else 1f
+            val finalBitmap = if (scale < 1f) {
+                android.graphics.Bitmap.createScaledBitmap(
+                    originalBitmap,
+                    (originalBitmap.width * scale).toInt(),
+                    (originalBitmap.height * scale).toInt(),
+                    true
+                )
+            } else {
+                originalBitmap
+            }
+
+            finalBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, outputStream)
+            outputStream.flush()
+            outputStream.close()
+
+            withContext(Dispatchers.Main) {
+                logs.add("Uploading to Master Brain...")
+            }
+
+            // Image part
+            val requestBody = tempFile.asRequestBody("image/png".toMediaTypeOrNull())
+            val imagePart = MultipartBody.Part.createFormData("file", tempFile.name, requestBody)
+
+            // Other parts (Username, Text, and Region)
+            val usernameBody = loggedInUser.toRequestBody("text/plain".toMediaTypeOrNull())
+            val localTextBody = localExtractedText.toRequestBody("text/plain".toMediaTypeOrNull())
+            val regionBody = savedRegion.toRequestBody("text/plain".toMediaTypeOrNull()) // 🔥 Region Add করা হলো
+
+            // 🔥 Call API with 4 parts: file, username, localText, region
+            val response = RetrofitClient.apiService.scanImage(imagePart, usernameBody, localTextBody, regionBody)
 
             withContext(Dispatchers.Main) {
                 if (response.isSuccessful) {
-                    delay(800)
-                    logs.add("Cloud AI is checking patterns...")
-                    delay(1500)
+                    logs.add("Brain extracted Bangla Text & Scanned Link! ✔")
+                    delay(400)
 
-                    val resultBody = response.body() as? Map<*, *>
-                    val aiResult = resultBody?.get("aiResult")?.toString()?.uppercase() ?: "SAFE"
+                    val aiResult = response.body()?.result?.uppercase() ?: "SAFE"
+                    val finalExtractedText = response.body()?.extractedText ?: localExtractedText
 
                     when {
-                        aiResult.contains("DANGER") || aiResult.contains("SCAM") || aiResult.contains("PHISHING") -> {
-                            logs.add("DANGER: Malicious intent detected! ❌")
-                            onResult(5, payloadData, phone)
+                        aiResult.contains("DANGER") -> {
+                            logs.add("DANGER: Malicious intent detected in image! ❌")
+                            saveImageScanToHistory(context, finalExtractedText.take(50), "DANGER", "OCR Image Scanner")
+                            onResult(5, finalExtractedText, phone)
                         }
                         aiResult.contains("SPAM") -> {
-                            logs.add("WARNING: Spam content detected. ⚠️")
-                            onResult(4, payloadData, phone)
+                            logs.add("WARNING: Spam content detected. \u26A0\uFE0F")
+                            saveImageScanToHistory(context, finalExtractedText.take(50), "SPAM", "OCR Image Scanner")
+                            onResult(4, finalExtractedText, phone)
                         }
                         aiResult.contains("PROMO") -> {
-                            logs.add("INFO: Promotional content found. ℹ️")
-                            onResult(3, payloadData, phone)
+                            logs.add("INFO: Promotional content found. \u2139\uFE0F")
+                            saveImageScanToHistory(context, finalExtractedText.take(50), "PROMO", "OCR Image Scanner")
+                            onResult(3, finalExtractedText, phone)
                         }
                         else -> {
                             logs.add("Scan finished. No threats found. ✔")
-                            onResult(2, payloadData, phone)
+                            saveImageScanToHistory(context, finalExtractedText.take(50), "SAFE", "OCR Image Scanner")
+                            onResult(2, finalExtractedText, phone)
                         }
                     }
                 } else {
-                    logs.add("ERROR: Server rejected the request.")
-                    onResult(0, payloadData, phone)
+                    logs.add("ERROR: Server rejected the request (Code: ${response.code()}).")
+                    onResult(0, localExtractedText, phone)
                 }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                logs.add("ERROR: Network failure. Please check internet.")
-                onResult(0, payloadData, phone)
+                logs.add("ERROR: Request failed. Server might be sleeping. (${e.message})")
+                onResult(0, localExtractedText, phone)
             }
         }
     }
 }
 
-// ==========================================
-// OFFLINE LOCAL TFLITE LOGIC (USES SpamDetector.kt)
-// ==========================================
 suspend fun runLocalOcrTFLiteAnalysis(context: Context, payloadData: String, phone: String?, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int, String, String?) -> Unit) {
     logs.add("No internet. Using offline AI mode...")
     delay(400)
@@ -441,18 +479,22 @@ suspend fun runLocalOcrTFLiteAnalysis(context: Context, payloadData: String, pho
         when (labelIndex) {
             3 -> {
                 logs.add("DANGER: Malicious pattern found! ❌")
+                saveImageScanToHistory(context, payloadData.take(50), "DANGER", "Local Scanner")
                 onResult(5, payloadData, phone)
             }
             2 -> {
-                logs.add("WARNING: Spam content detected. ⚠️")
+                logs.add("WARNING: Spam content detected. \u26A0\uFE0F")
+                saveImageScanToHistory(context, payloadData.take(50), "SPAM", "Local Scanner")
                 onResult(4, payloadData, phone)
             }
             1 -> {
-                logs.add("INFO: Promotional content found. ℹ️")
+                logs.add("INFO: Promotional content found. \u2139\uFE0F")
+                saveImageScanToHistory(context, payloadData.take(50), "PROMO", "Local Scanner")
                 onResult(3, payloadData, phone)
             }
             else -> {
                 logs.add("Scan finished. Safe. ✔")
+                saveImageScanToHistory(context, payloadData.take(50), "SAFE", "Local Scanner")
                 onResult(2, payloadData, phone)
             }
         }
@@ -466,9 +508,6 @@ fun isInternetAvail(context: Context): Boolean {
     return activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
 }
 
-// ==========================================
-// UI COMPONENTS
-// ==========================================
 @Composable
 fun ImageIntelligenceCanvas(uri: Uri?, scanState: Int, onClick: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition()
@@ -478,9 +517,9 @@ fun ImageIntelligenceCanvas(uri: Uri?, scanState: Int, onClick: () -> Unit) {
         0 -> NeonCyan.copy(alpha = pulseAlpha)
         1 -> NeonPurple
         2 -> Color.Green
-        3 -> Color(0xFF3B82F6) // Promo
-        4 -> Color(0xFFFF9800) // Spam
-        5 -> Color.Red // Danger
+        3 -> Color(0xFF3B82F6)
+        4 -> Color(0xFFFF9800)
+        5 -> Color.Red
         else -> Color.DarkGray
     }
 
@@ -571,7 +610,7 @@ fun ThreatBreakdownCard(insights: List<ThreatInsight>) {
 fun ActionCenter(state: Int, phoneToBlock: String?) {
     val context = LocalContext.current
 
-    if (state >= 4) { // Show actions for SPAM and DANGER
+    if (state >= 4) {
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("RECOMMENDED ACTIONS", color = if(state == 5) Color.Red else Color(0xFFFF9800), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
 

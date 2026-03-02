@@ -18,9 +18,9 @@ object RetrofitClient {
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         // 🔥 Render এর স্লিপ মোডের জন্য টাইমআউট 30s থেকে বাড়িয়ে 90s করা হলো
-        .connectTimeout(90, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(90, TimeUnit.SECONDS)
+        .connectTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
         .build()
 
     val apiService: ApiService by lazy {

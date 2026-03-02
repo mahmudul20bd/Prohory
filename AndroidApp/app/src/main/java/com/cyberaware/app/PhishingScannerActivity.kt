@@ -67,6 +67,17 @@ import java.net.URL
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
+// 🔥 Save to History Function
+fun saveScanToHistory(context: Context, content: String, threatLevel: String, sourceName: String) {
+    val sharedPref = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
+    val currentThreats = sharedPref.getStringSet("scan_history_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+
+    val logEntry = "$sourceName Entry|||$content|||${System.currentTimeMillis()}|||$threatLevel|||$sourceName"
+
+    currentThreats.add(logEntry)
+    sharedPref.edit().putStringSet("scan_history_list", currentThreats).apply()
+}
+
 class PhishingScannerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,7 +106,6 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
     var payloadInput by remember { mutableStateOf("") }
     val scanLogs = remember { mutableStateListOf<String>() }
 
-    // 🔥 scanState: 0=Idle, 1=Scanning, 2=Safe, 3=Promo, 4=Spam, 5=Danger
     var scanState by remember { mutableIntStateOf(0) }
     var downloadStatus by remember { mutableStateOf("Checking Offline Files...") }
     var isModelReady by remember { mutableStateOf(false) }
@@ -161,7 +171,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ১. Header
+            // Header
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
                 Spacer(modifier = Modifier.width(4.dp))
@@ -170,7 +180,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 Text("SCAN MESSAGE", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             }
 
-            // ২. Status Indicators
+            // Indicators
             Column(modifier = Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(if(isModelReady) Icons.Default.CloudDone else Icons.Default.CloudDownload, contentDescription = null, tint = if(isModelReady) Color.Green else Color.Yellow, modifier = Modifier.size(14.dp))
@@ -190,7 +200,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 }
             }
 
-            // ৩. Input Area
+            // Input Area
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 color = Color(0xFF131C2B).copy(alpha = 0.8f),
@@ -232,7 +242,6 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                                 }
                             }
                         },
-
                         enabled = scanState != 1,
                         modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)),
                         colors = ButtonDefaults.buttonColors(containerColor = if (scanState == 1) Color.DarkGray else NeonPurple)
@@ -242,7 +251,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 }
             }
 
-            // ৪. Animation Box (🔥 UPDATED FOR 4 LEVELS)
+            // Animation Box
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -259,7 +268,7 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
                 }
             }
 
-            // ৫. Logs Box
+            // Logs Box
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -275,7 +284,6 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
 
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = false) {
                         items(scanLogs) { log ->
-                            // 🔥 Color Mapping for 4 Levels
                             val textColor = when {
                                 log.contains("DANGER") || log.contains("❌") || log.contains("ERROR") -> Color.Red
                                 log.contains("SPAM") || log.contains("WARNING") -> Color(0xFFFF9800)
@@ -302,75 +310,55 @@ fun PhishingScannerScreen(onBack: () -> Unit) {
     }
 }
 
-// ==========================================
-// 1. ONLINE CLOUD AI LOGIC
-// ==========================================
 suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
     logs.add("Checking internet connection...")
     delay(400)
-    logs.add("Connecting to secure server...")
+    logs.add("Connecting to Prohory Level-6 Engine...")
     delay(500)
-    logs.add("Sending your text securely...")
 
+    // 🔥 Retrieve the username and region from SharedPreferences
     val sharedPref = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
-    val token = sharedPref.getString("auth_token", "") ?: ""
-    val reporterId = sharedPref.getString("username", "Agent") ?: "Agent"
-    val userRegion = sharedPref.getString("user_division", "") ?: ""
-
-    var deviceId = sharedPref.getString("anonymous_device_id", null)
-    if (deviceId == null) {
-        deviceId = java.util.UUID.randomUUID().toString()
-        sharedPref.edit().putString("anonymous_device_id", deviceId).apply()
-    }
-
-    val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
-    val osVersion = "Android ${android.os.Build.VERSION.RELEASE}"
-
-    if (token.isEmpty()) {
-        logs.add("ERROR: You are not logged in!")
-        onResult(0)
-        return
-    }
+    val loggedInUser = sharedPref.getString("username", "Unknown User") ?: "Unknown User"
+    val savedRegion = sharedPref.getString("user_division", "UNKNOWN") ?: "UNKNOWN" // 🔥 অ্যাপ থেকে ডিভিশন নেওয়া হচ্ছে
 
     withContext(Dispatchers.IO) {
         try {
-            val payload = mapOf(
-                "sender" to "Manual AI Scan",
-                "message" to payloadData,
-                "reporter" to reporterId,
-                "region" to userRegion,
-                "deviceId" to deviceId,
-                "deviceModel" to deviceModel,
-                "osVersion" to osVersion
+            // 🔥 Pass username, message and region
+            val requestPayload = com.cyberaware.app.network.ScanTextRequest(
+                message = payloadData,
+                username = loggedInUser,
+                region = savedRegion // 🔥 ব্যাকএন্ডে ডিভিশন পাঠানো হচ্ছে
             )
-            val response = RetrofitClient.apiService.submitSmsReport("Bearer $token", payload)
+            val response = RetrofitClient.apiService.scanText(requestPayload)
 
             withContext(Dispatchers.Main) {
                 if (response.isSuccessful) {
-                    logs.add("Message received by server. ✔")
+                    logs.add("Message received by Hybrid AI Engine. ✔")
                     delay(800)
-                    logs.add("Analyzing threat level from Cloud AI...")
-                    delay(1500)
+                    logs.add("Running Global Intel & Behavioral Scan...")
+                    delay(1000)
 
-                    val resultBody = response.body() as? Map<*, *>
-                    val aiResult = resultBody?.get("aiResult")?.toString()?.uppercase() ?: "SAFE"
+                    val aiResult = response.body()?.result?.uppercase() ?: "SAFE"
 
-                    // 🔥 Map Cloud Result to 4 States
-                    when {
-                        aiResult.contains("DANGER") || aiResult.contains("SCAM") || aiResult.contains("PHISHING") -> {
+                    when (aiResult) {
+                        "DANGER" -> {
                             logs.add("DANGER: Malicious intent detected! ❌")
+                            saveScanToHistory(context, payloadData, "DANGER", "Phishing Scanner")
                             onResult(5)
                         }
-                        aiResult.contains("SPAM") -> {
-                            logs.add("WARNING: Spam content detected. ⚠️")
+                        "SPAM" -> {
+                            logs.add("WARNING: Spam content detected. \u26A0\uFE0F")
+                            saveScanToHistory(context, payloadData, "SPAM", "Phishing Scanner")
                             onResult(4)
                         }
-                        aiResult.contains("PROMO") -> {
-                            logs.add("INFO: Promotional content found. ℹ️")
+                        "PROMO" -> {
+                            logs.add("INFO: Promotional content found. \u2139\uFE0F")
+                            saveScanToHistory(context, payloadData, "PROMO", "Phishing Scanner")
                             onResult(3)
                         }
                         else -> {
                             logs.add("Scan finished. No threats found. ✔")
+                            saveScanToHistory(context, payloadData, "SAFE", "Phishing Scanner")
                             onResult(2)
                         }
                     }
@@ -388,9 +376,6 @@ suspend fun runServerAIAnalysis(context: Context, payloadData: String, logs: and
     }
 }
 
-// ==========================================
-// 2. OFFLINE LOCAL TFLITE LOGIC (USES SpamDetector.kt)
-// ==========================================
 suspend fun runLocalTFLiteAnalysis(context: Context, payloadData: String, logs: androidx.compose.runtime.snapshots.SnapshotStateList<String>, onResult: (Int) -> Unit) {
     logs.add("No internet. Initializing Local AI...")
     delay(400)
@@ -411,31 +396,31 @@ suspend fun runLocalTFLiteAnalysis(context: Context, payloadData: String, logs: 
 
     withContext(Dispatchers.Main) {
         delay(600)
-        // 🔥 Map TFLite Result (0=Safe, 1=Promo, 2=Spam, 3=Danger) to UI States (2=Safe, 3=Promo, 4=Spam, 5=Danger)
         when (labelIndex) {
             3 -> {
                 logs.add("DANGER: Malicious pattern found! ❌")
+                saveScanToHistory(context, payloadData, "DANGER", "Local Scanner") // 🔥 SAVED
                 onResult(5)
             }
             2 -> {
-                logs.add("WARNING: Spam content detected. ⚠️")
+                logs.add("WARNING: Spam content detected. \u26A0\uFE0F")
+                saveScanToHistory(context, payloadData, "SPAM", "Local Scanner") // 🔥 SAVED
                 onResult(4)
             }
             1 -> {
-                logs.add("INFO: Promotional content found. ℹ️")
+                logs.add("INFO: Promotional content found. \u2139\uFE0F")
+                saveScanToHistory(context, payloadData, "PROMO", "Local Scanner") // 🔥 SAVED
                 onResult(3)
             }
             else -> {
                 logs.add("Scan finished. Safe. ✔")
+                saveScanToHistory(context, payloadData, "SAFE", "Local Scanner") // 🔥 SAVED
                 onResult(2)
             }
         }
     }
 }
 
-// ==========================================
-// 3. DOWNLOADER LOGIC
-// ==========================================
 suspend fun downloadOfflineResources(context: Context): Boolean {
     val modelUrl = "https://pub-43adda752ae546939758ef344e12b935.r2.dev/cyberaware_model.tflite"
     val vocabUrl = "https://pub-43adda752ae546939758ef344e12b935.r2.dev/vocab.txt"
@@ -485,10 +470,6 @@ fun isInternetAvailable(context: Context): Boolean {
     return activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
 }
 
-// ==========================================
-// 🔥 HIGHLY ADVANCED ANIMATION COMPONENTS 🔥
-// ==========================================
-
 @Composable
 fun AdvancedIdleState() {
     val infiniteTransition = rememberInfiniteTransition()
@@ -527,16 +508,15 @@ fun AdvancedActiveScanningState() {
     }
 }
 
-// 🔥 UPDATED: Dynamic UI for 4 Levels
 @Composable
 fun AdvancedResultState(level: Int) {
     val infiniteTransition = rememberInfiniteTransition()
 
     val (color, icon, text) = when (level) {
         2 -> Triple(Color.Green, Icons.Default.HealthAndSafety, "SAFE")
-        3 -> Triple(Color(0xFF3B82F6), Icons.Default.LocalOffer, "PROMO") // Blue for Promo
-        4 -> Triple(Color(0xFFFF9800), Icons.Default.ReportProblem, "SPAM") // Orange for Spam
-        5 -> Triple(Color.Red, Icons.Default.GppBad, "DANGER") // Red for Danger
+        3 -> Triple(Color(0xFF3B82F6), Icons.Default.LocalOffer, "PROMO")
+        4 -> Triple(Color(0xFFFF9800), Icons.Default.ReportProblem, "SPAM")
+        5 -> Triple(Color.Red, Icons.Default.GppBad, "DANGER")
         else -> Triple(Color.DarkGray, Icons.Default.Info, "UNKNOWN")
     }
 

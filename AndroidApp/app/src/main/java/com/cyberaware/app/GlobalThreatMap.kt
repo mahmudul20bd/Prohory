@@ -106,7 +106,7 @@ fun GlobalThreatMapScreen() {
                     val stats = statsResponse.body()
                     if (stats != null) {
                         withContext(Dispatchers.Main) {
-                            totalThreatsDetected = stats.blockedScams
+                            totalThreatsDetected = stats.blockedScams ?: 0
                         }
                     }
                 }
@@ -129,9 +129,10 @@ fun GlobalThreatMapScreen() {
                                 if (severity == "DANGER" || severity == "SPAM") {
                                     val timeInMillis = try {
                                         val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                                        // 🔥 FIX: সার্ভারের UTC টাইমকে লোকাল টাইমে কনভার্ট করা হচ্ছে
+                                        format.timeZone = java.util.TimeZone.getTimeZone("UTC")
                                         format.parse(log.timestamp ?: "")?.time ?: System.currentTimeMillis()
                                     } catch (e: Exception) { System.currentTimeMillis() }
-
                                     liveLogs.add(AdvancedAttackLog(logCounter++, log.details, severity, timeInMillis, log.details))
                                 }
                             }
@@ -400,15 +401,22 @@ fun getMapTimeAgo(timeInMillis: Long): String {
 fun AnimatedLogItem(log: AdvancedAttackLog) {
     val userFriendlyMessage = remember(log.rawDetails) {
         val details = log.rawDetails.lowercase()
+
+        // 🔥 FIX: rawDetails থেকে Division/Region নামটা বের করার চেষ্টা করা
+        val divisions = listOf("Dhaka", "Chittagong", "Sylhet", "Rajshahi", "Khulna", "Barisal", "Rangpur", "Mymensingh")
+        val detectedDiv = divisions.find { details.contains(it.lowercase()) }
+        val locationText = if (detectedDiv != null) " in $detectedDiv Region" else ""
+
         when {
             log.logMessage.startsWith("🚨") || log.logMessage.startsWith("⚠️") -> log.logMessage
-            details.contains("ocr") || details.contains("image") -> "📸 Image scan found a threat."
-            details.contains("phishing") || details.contains("link") -> "🎣 Dangerous website link was detected."
-            log.severity == "DANGER" -> "🚨 DANGER: Malicious scam or phishing detected."
-            log.severity == "SPAM" -> "⚠️ SPAM: Unsolicited message detected."
+            details.contains("ocr") || details.contains("image") -> "📸 Image scan found a threat$locationText."
+            details.contains("phishing") || details.contains("link") -> "🎣 Dangerous website link was detected$locationText."
+            log.severity == "DANGER" -> "🚨 DANGER: Malicious scam or phishing detected$locationText."
+            log.severity == "SPAM" -> "⚠️ SPAM: Unsolicited message detected$locationText."
             else -> log.logMessage
         }
     }
+
 
     val statusColor = if (log.severity == "DANGER") Color(0xFFFF5252) else Color(0xFFFF9800)
 

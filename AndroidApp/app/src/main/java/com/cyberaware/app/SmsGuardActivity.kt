@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +26,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsSuggest
 import androidx.compose.material.icons.filled.Storage
@@ -38,11 +38,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,20 +54,16 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
-// Data Models
-data class RealSpamMessage(val id: String, val sender: String, val payload: String, val timestamp: String, val rawMillis: Long)
+// Model
+data class RealSpamMessage(val id: String, val sender: String, val payload: String, val timestamp: String, val rawMillis: Long, val threatLevel: String)
 data class BlockedEntity(val number: String, val spamCount: Int)
 
 class SmsGuardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedPref = getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
-        val isScreenshotProtected = sharedPref.getBoolean("screenshot_protect", false)
-        if (isScreenshotProtected) {
-            window.setFlags(
-                android.view.WindowManager.LayoutParams.FLAG_SECURE,
-                android.view.WindowManager.LayoutParams.FLAG_SECURE
-            )
+        if (sharedPref.getBoolean("screenshot_protect", false)) {
+            window.setFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE, android.view.WindowManager.LayoutParams.FLAG_SECURE)
         }
         setContent {
             CyberAwareTheme {
@@ -109,19 +102,21 @@ fun SmsGuardScreen(onBack: () -> Unit) {
             val spams = mutableListOf<RealSpamMessage>()
 
             for (threat in savedThreats) {
-                // SMS log format checking
                 val parts = threat.split("|||")
                 if (parts.size >= 3) {
                     val sender = parts[0]
+
+                    // 🔥 FIX: Ignore Manual Scans that got mistakenly saved here previously
+                    if (sender.contains("Scanner", ignoreCase = true) || sender.contains("Manual", ignoreCase = true)) {
+                        continue
+                    }
+
                     val body = parts[1]
                     val millis = parts[2].toLongOrNull() ?: System.currentTimeMillis()
+                    val level = if (parts.size >= 4) parts[3] else "DANGER"
 
                     val dateString = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
-                    spams.add(RealSpamMessage(UUID.randomUUID().toString(), sender, body, dateString, millis))
-                } else if (threat.startsWith("Spam from:")) {
-                    // For dynamically formatted local threats in the new system
-                    val sender = threat.replace("Spam from: ", "")
-                    spams.add(RealSpamMessage(UUID.randomUUID().toString(), sender, "Spam SMS detected by background sensor.", "Recent", System.currentTimeMillis()))
+                    spams.add(RealSpamMessage(UUID.randomUUID().toString(), sender, body, dateString, millis, level))
                 }
             }
 
@@ -136,8 +131,6 @@ fun SmsGuardScreen(onBack: () -> Unit) {
     }
 
     fun clearArchive() {
-        // In the unified logic, clearing this also clears the Central Archive's SMS portion.
-        // It's acceptable for users who just want to clear it quickly.
         sharedPref.edit().remove("quarantine_list").apply()
         archivedSpams.clear()
         Toast.makeText(context, "Sensor Cache Cleared. Health Restored.", Toast.LENGTH_SHORT).show()
@@ -150,7 +143,6 @@ fun SmsGuardScreen(onBack: () -> Unit) {
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Header
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
                 Spacer(modifier = Modifier.width(8.dp))
@@ -164,7 +156,6 @@ fun SmsGuardScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // AUTO-BLOCK CONFIGURATOR (Responsive)
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 color = Color(0xFF131C2B).copy(alpha = 0.8f),
@@ -179,7 +170,7 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                             Text("AUTO-DETECT LIMIT", color = NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text("Warn me to block a number if it sends this many scams.", color = Color.Gray, fontSize = 9.sp, lineHeight = 14.sp)
+                        Text("Warn me to block a number if it sends this many threats.", color = Color.Gray, fontSize = 9.sp, lineHeight = 14.sp)
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(Color(0xFF0B1221), RoundedCornerShape(20.dp)).border(1.dp, Color.DarkGray, RoundedCornerShape(20.dp))) {
@@ -196,15 +187,13 @@ fun SmsGuardScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Tabs
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FirewallTab("SCAM MESSAGES (${archivedSpams.size})", selectedTab == 0, Modifier.weight(1f)) { selectedTab = 0 }
+                FirewallTab("BLOCKED SMS (${archivedSpams.size})", selectedTab == 0, Modifier.weight(1f)) { selectedTab = 0 }
                 FirewallTab("NEEDS BLOCKING (${blacklist.size})", selectedTab == 1, Modifier.weight(1f)) { selectedTab = 1 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Dynamic Content (Fully Responsive with weight)
             Surface(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
                 color = Color(0xFF0B1221).copy(alpha = 0.9f),
@@ -216,10 +205,9 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                         AnimatedScannerPulse()
                     }
                 } else if (selectedTab == 0) {
-                    // SPAM INBOX
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("RECENT SCAM ATTEMPTS", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text("RECENT THREAT INTERCEPTIONS", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                             if (archivedSpams.isNotEmpty()) {
                                 IconButton(onClick = { clearArchive() }, modifier = Modifier.size(24.dp)) {
                                     Icon(Icons.Default.DeleteSweep, contentDescription = "Clear", tint = Color.Gray)
@@ -229,7 +217,7 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
 
                         if(archivedSpams.isEmpty()) {
-                            EmptyStateMessage("NO SCAM MESSAGES FOUND.\nYOUR INBOX IS SAFE.")
+                            EmptyStateMessage("NO THREATS FOUND.\nYOUR INBOX IS SAFE.")
                         } else {
                             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
                                 items(archivedSpams, key = { it.id }) { msg -> AnimatedSpamMessageCard(msg) }
@@ -237,7 +225,6 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                         }
                     }
                 } else {
-                    // BLACKLIST (Requires Action)
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(14.dp))
@@ -261,13 +248,11 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                 }
             }
 
-            // 🔥 UNIFIED ARCHIVE ROUTE (Direct to Archive Tab)
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(20.dp).clickable {
-                    // Dashboard e signal pathacchi jate direct tab 2 open hoy
                     val intent = Intent(context, DashboardActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                        putExtra("TARGET_TAB", 2) // 2 means Intelligence Archive Tab
+                        putExtra("TARGET_TAB", 2)
                     }
                     context.startActivity(intent)
                 },
@@ -278,7 +263,7 @@ fun SmsGuardScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                     Icon(Icons.Default.Storage, null, tint = Color(0xFFFF9800), modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("VIEW IN CENTRAL ARCHIVE", color = Color(0xFFFF9800), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("VIEW IN MANUAL SCAN HISTORY", color = Color(0xFFFF9800), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     Spacer(modifier = Modifier.width(10.dp))
                     Icon(Icons.Rounded.ArrowForwardIos, null, tint = Color(0xFFFF9800), modifier = Modifier.size(14.dp))
                 }
@@ -288,34 +273,47 @@ fun SmsGuardScreen(onBack: () -> Unit) {
 }
 
 // ==========================================
-// ADVANCED UI COMPONENTS
+// 🔥 UI COMPONENTS
 // ==========================================
 
 @Composable
 fun AnimatedSpamMessageCard(msg: RealSpamMessage) {
     var isExpanded by remember { mutableStateOf(false) }
 
+    // Dynamic Threat Level Logic
+    val isDanger = msg.threatLevel == "DANGER"
+    val uiColor = if (isDanger) Color.Red else Color(0xFFFF9800)
+    val icon = if (isDanger) Icons.Default.BugReport else Icons.Default.ReportProblem
+    val badgeText = if (isDanger) "SCAM" else "SPAM"
+
     Surface(
         modifier = Modifier.fillMaxWidth().clickable { isExpanded = !isExpanded },
         color = Color(0xFF131C2B),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color.Red.copy(0.3f))
+        border = BorderStroke(1.dp, uiColor.copy(0.3f))
     ) {
         Column(modifier = Modifier.padding(12.dp).animateContentSize()) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.BugReport, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                    Icon(icon, null, tint = uiColor, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(msg.sender, color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(msg.sender, color = uiColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-                Text(msg.timestamp, color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = uiColor.copy(0.1f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, uiColor.copy(0.5f))) {
+                        Text(badgeText, color = uiColor, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(msg.timestamp, color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
 
-            val displayPayload = if (isExpanded) msg.payload else msg.payload.take(50) + if (msg.payload.length > 50) "..." else ""
+            val displayPayload = if (isExpanded) msg.payload else msg.payload.take(60) + if (msg.payload.length > 60) "..." else ""
             Text(displayPayload, color = Color.White.copy(0.8f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
 
-            if (!isExpanded && msg.payload.length > 50) {
+            if (!isExpanded && msg.payload.length > 60) {
                 Text("Tap to read full message", color = NeonCyan, fontSize = 8.sp, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -338,13 +336,12 @@ fun ActionableBlacklistCard(entity: BlockedEntity, context: Context, onIgnore: (
                     Text(entity.number, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 }
                 Surface(color = Color.Red.copy(0.1f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, Color.Red)) {
-                    Text("${entity.spamCount} SCAMS", color = Color.Red, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Text("${entity.spamCount} SMS DETECTED", color = Color.Red, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Action Buttons
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = onIgnore,

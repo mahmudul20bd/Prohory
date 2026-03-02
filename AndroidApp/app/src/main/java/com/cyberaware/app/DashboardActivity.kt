@@ -386,8 +386,7 @@ fun IntelligenceSidebar(
             Text("ACCOUNT & ACTIVITY", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.padding(start = 8.dp))
             Spacer(modifier = Modifier.height(12.dp))
 
-            SidebarMenuItem("Threat Intelligence", Icons.Rounded.Storage, NeonPurple) { onNavigateToArchive() }
-            SidebarMenuItem("Scan History", Icons.Rounded.History, Color(0xFF3B82F6)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
+            SidebarMenuItem("Scan History", Icons.Rounded.History, Color(0xFF3B82F6)) { onNavigateToArchive() }
             SidebarMenuItem("Trusted Networks", Icons.Rounded.WifiTethering, Color(0xFF10B981)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
             SidebarMenuItem("Security Reports", Icons.Rounded.Analytics, Color(0xFFFF9800)) { Toast.makeText(context, "Upcoming Feature.", Toast.LENGTH_SHORT).show() }
 

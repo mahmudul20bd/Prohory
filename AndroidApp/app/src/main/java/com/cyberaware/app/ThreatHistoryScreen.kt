@@ -37,8 +37,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cyberaware.app.network.RetrofitClient
 import com.cyberaware.app.ui.theme.NeonCyan
 import com.cyberaware.app.ui.theme.NeonPurple
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -51,85 +55,142 @@ data class ThreatArtifact(
     val riskScore: Int,
     val aiConfidence: Float,
     val patternCluster: String,
-    val timestamp: Long, // Added timestamp for filtering
-    val rawString: String // To delete from SharedPreferences
+    val timestamp: Long,
+    val source: String,
+    val isLocal: Boolean, // To track if we can delete it from local storage
+    val rawString: String = "" // Original string for local deletion
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThreatHistoryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     val threatPrefs = context.getSharedPreferences("CyberAwareThreats", Context.MODE_PRIVATE)
+    val userPrefs = context.getSharedPreferences("CyberAwarePrefs", Context.MODE_PRIVATE)
+    val loggedInUser = userPrefs.getString("username", "Unknown User") ?: "Unknown User"
+    val token = userPrefs.getString("auth_token", "") ?: ""
 
     var archiveList by remember { mutableStateOf<List<ThreatArtifact>>(emptyList()) }
     var filterOption by remember { mutableStateOf("All Time") }
     var showFilterMenu by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
 
     BackHandler { onBack() }
 
-    fun loadThreats() {
-        val savedThreats = threatPrefs.getStringSet("quarantine_list", emptySet()) ?: emptySet()
-        val parsedList = savedThreats.mapIndexed { index, rawData ->
-            val parts = rawData.split("|||")
-            val sender = if (parts.isNotEmpty()) parts[0] else "Unknown Sender"
-            val message = if (parts.size > 1) parts[1] else "No Payload Content"
-            val timestamp = if (parts.size > 2) parts[2].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+    // 🔥 FETCH BOTH LOCAL SAFE SCANS AND CLOUD THREATS
+    fun loadUnifiedThreats() {
+        coroutineScope.launch(Dispatchers.IO) {
+            val unifiedList = mutableListOf<ThreatArtifact>()
 
-            // 🔥 4-Level AI: Dynamic Intelligence Heuristics based on text
-            val lowerMsg = message.lowercase()
-            val (type, score, confidence, cluster) = when {
-                lowerMsg.contains("http") || lowerMsg.contains(".com") || lowerMsg.contains("bkash") || lowerMsg.contains("nagad") || lowerMsg.contains("bank") ->
-                    listOf("DANGER", (90..99).random(), 0.95f, "MALICIOUS_CLUSTER")
-                lowerMsg.contains("win") || lowerMsg.contains("offer") || lowerMsg.contains("free") || lowerMsg.contains("lottery") ->
-                    listOf("SPAM", (70..89).random(), 0.88f, "SPAM_CAMPAIGN")
-                lowerMsg.contains("discount") || lowerMsg.contains("buy") || lowerMsg.contains("promo") ->
-                    listOf("PROMO", (30..50).random(), 0.75f, "PROMO_MARKETING")
-                else ->
-                    listOf("SPAM", (51..69).random(), 0.70f, "GENERIC_SPAM_NET")
+            // 1. LOAD LOCAL SAFE SCANS (Privacy First)
+            val savedThreats = threatPrefs.getStringSet("scan_history_list", emptySet()) ?: emptySet()
+
+            // Only keep SAFE scans from local (since Danger ones are fetched from server)
+            val localSafeScans = savedThreats.filter { it.contains("SAFE") }
+
+            localSafeScans.forEachIndexed { index, rawData ->
+                val parts = rawData.split("|||")
+                val sender = if (parts.isNotEmpty()) parts[0] else "Local Scan"
+                val message = if (parts.size > 1) parts[1] else "No Payload"
+                val timestamp = if (parts.size > 2) parts[2].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+                val source = if (parts.size > 4) parts[4] else "Manual Scan"
+
+                unifiedList.add(
+                    ThreatArtifact(
+                        id = "LOCAL-$index",
+                        sender = sender,
+                        message = message,
+                        type = "SAFE",
+                        riskScore = (1..29).random(),
+                        aiConfidence = 0.99f,
+                        patternCluster = "CLEAN_NETWORK",
+                        timestamp = timestamp,
+                        source = source,
+                        isLocal = true,
+                        rawString = rawData
+                    )
+                )
             }
 
-            ThreatArtifact(
-                id = index.toString(),
-                sender = sender,
-                message = message,
-                type = type as String,
-                riskScore = score as Int,
-                aiConfidence = confidence as Float,
-                patternCluster = cluster as String,
-                timestamp = timestamp,
-                rawString = rawData
-            )
+            // 2. LOAD SERVER THREATS (Danger, Spam, Promo)
+            if (token.isNotEmpty() && loggedInUser != "Unknown User") {
+                try {
+                    val response = RetrofitClient.apiService.getUserReports("Bearer $token", loggedInUser)
+                    if (response.isSuccessful && response.body() != null) {
+                        response.body()!!.forEach { report ->
+                            val savedType = report.aiResult?.uppercase() ?: "UNKNOWN"
+
+                            val (type, score, confidence, cluster) = when {
+                                savedType == "DANGER" || savedType == "SCAM" -> listOf("DANGER", (90..99).random(), 0.95f, "MALICIOUS_CLUSTER")
+                                savedType == "SPAM" -> listOf("SPAM", (70..89).random(), 0.88f, "SPAM_CAMPAIGN")
+                                savedType == "PROMO" -> listOf("PROMO", (30..50).random(), 0.75f, "PROMO_MARKETING")
+                                else -> listOf("SAFE", (1..29).random(), 0.99f, "CLEAN_NETWORK")
+                            }
+
+                            var timestampInMillis = System.currentTimeMillis()
+                            try {
+                                if (report.createdAt != null) {
+                                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                                    timestampInMillis = sdf.parse(report.createdAt)?.time ?: System.currentTimeMillis()
+                                }
+                            } catch (e: Exception) {}
+
+                            unifiedList.add(
+                                ThreatArtifact(
+                                    id = report.id?.toString() ?: UUID.randomUUID().toString().take(8),
+                                    sender = report.sender ?: "Backend Scan",
+                                    message = report.message ?: "No content",
+                                    type = type as String,
+                                    riskScore = score as Int,
+                                    aiConfidence = confidence as Float,
+                                    patternCluster = cluster as String,
+                                    timestamp = timestampInMillis,
+                                    source = report.sender ?: "Remote API",
+                                    isLocal = false
+                                )
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // Apply Filter Logic & Sort Hybrid List by Newest First
+            val currentTime = System.currentTimeMillis()
+            val filteredList = unifiedList.filter {
+                when (filterOption) {
+                    "Last 7 Days" -> currentTime - it.timestamp <= 7L * 24 * 60 * 60 * 1000
+                    "Last 30 Days" -> currentTime - it.timestamp <= 30L * 24 * 60 * 60 * 1000
+                    else -> true
+                }
+            }.sortedByDescending { it.timestamp }
+
+            withContext(Dispatchers.Main) {
+                archiveList = filteredList
+                isLoading = false
+            }
         }
-
-        // Apply Filter Logic
-        val currentTime = System.currentTimeMillis()
-        val filteredList = parsedList.filter {
-            when (filterOption) {
-                "Last 7 Days" -> currentTime - it.timestamp <= 7L * 24 * 60 * 60 * 1000
-                "Last 30 Days" -> currentTime - it.timestamp <= 30L * 24 * 60 * 60 * 1000
-                else -> true // All Time
-            }
-        }.sortedByDescending { it.timestamp } // Sort by newest first instead of risk score for better history tracking
-
-        archiveList = filteredList
     }
 
-    LaunchedEffect(filterOption) { loadThreats() }
+    LaunchedEffect(filterOption) {
+        isLoading = true
+        loadUnifiedThreats()
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF02040A)).padding(16.dp)) {
-
-        // 1️⃣ Header with Back Button and Filter
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = NeonCyan) }
             Spacer(modifier = Modifier.width(4.dp))
             Icon(Icons.Rounded.Storage, contentDescription = "Archive", tint = NeonPurple, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("THREAT HISTORY", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("Quarantined Messages", color = Color.Gray, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("SCAN HISTORY", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("Logs (Local & Cloud)", color = Color.Gray, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             }
 
-            // Filter Button
             Box {
                 Surface(
                     modifier = Modifier.clickable { showFilterMenu = true },
@@ -153,85 +214,76 @@ fun ThreatHistoryScreen(onBack: () -> Unit) {
             }
         }
 
-        if (archiveList.isNotEmpty()) {
-            // 2️⃣ Threat Timeline Visualization (Weekly Heat Graph) with Y-Axis
-            ThreatTimelineChart(archiveList.size)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 3️⃣ Smart Auto-Resolution Panel (UI Adjusted for better fit)
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color.Red.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("SYSTEM DEGRADED", color = Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("${archiveList.size} unresolved messages found.", color = Color.Gray, fontSize = 9.sp, lineHeight = 12.sp)
-                    }
-                    Button(
-                        onClick = {
-                            threatPrefs.edit().remove("quarantine_list").apply()
-                            loadThreats()
-                            Toast.makeText(context, "All threats cleared!", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f)),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), // Made button slightly smaller
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Text("CLEAR ALL", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // 4️⃣ Threat Intelligence List
-        if (archiveList.isEmpty()) {
+        if (isLoading) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Rounded.VerifiedUser, contentDescription = null, tint = Color.Green.copy(alpha = 0.5f), modifier = Modifier.size(80.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("ARCHIVE CLEAN", color = Color.Green, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("No threats found in this period.", color = Color.Gray, fontSize = 12.sp)
-                }
+                CircularProgressIndicator(color = NeonCyan)
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 20.dp)
-            ) {
-                item {
-                    Text("BLOCKED MESSAGES", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                items(archiveList) { threat ->
-                    ThreatIntelligenceCard(
-                        threat = threat,
-                        onDelete = {
-                            val currentList = threatPrefs.getStringSet("quarantine_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                            currentList.remove(threat.rawString)
-                            threatPrefs.edit().putStringSet("quarantine_list", currentList).apply()
-                            loadThreats()
-                            Toast.makeText(context, "Message Deleted", Toast.LENGTH_SHORT).show()
+            if (archiveList.isNotEmpty()) {
+                ThreatTimelineChart(archiveList.size)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF131C2B),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.DarkGray)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("SYSTEM LOGS", color = NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("${archiveList.size} mixed scans fetched.", color = Color.Gray, fontSize = 9.sp, lineHeight = 12.sp)
                         }
-                    )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (archiveList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.VerifiedUser, contentDescription = null, tint = Color.Green.copy(alpha = 0.5f), modifier = Modifier.size(80.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("HISTORY CLEAN", color = Color.Green, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                        Text("No scans found in database or local.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 20.dp)
+                ) {
+                    item {
+                        Text("RECENT SCANS", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    items(archiveList) { threat ->
+                        ThreatIntelligenceCard(
+                            threat = threat,
+                            onDelete = {
+                                if (threat.isLocal) {
+                                    val currentList = threatPrefs.getStringSet("scan_history_list", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                                    currentList.remove(threat.rawString)
+                                    threatPrefs.edit().putStringSet("scan_history_list", currentList).apply()
+                                    loadUnifiedThreats()
+                                    Toast.makeText(context, "Local SAFE Record Deleted", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Cloud threats cannot be deleted by user.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// ==========================================
-// 🔬 EXPANDABLE THREAT INTELLIGENCE CARD
-// ==========================================
 @Composable
 fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -262,10 +314,18 @@ fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
                     Box(modifier = Modifier.size(10.dp).background(riskColor, CircleShape))
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text(threat.type.uppercase(), color = riskColor, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text(threat.sender, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(threat.type.uppercase(), color = riskColor, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            if (threat.isLocal) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Rounded.PhoneAndroid, contentDescription = "Local", tint = Color.Gray, modifier = Modifier.size(10.dp))
+                            } else {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Rounded.Cloud, contentDescription = "Cloud", tint = NeonCyan, modifier = Modifier.size(10.dp))
+                            }
+                        }
+                        Text(threat.source, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
 
-                        // Show formatted date
                         val dateFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
                         Text(dateFormat.format(Date(threat.timestamp)), color = Color.Gray, fontSize = 9.sp)
                     }
@@ -278,7 +338,7 @@ fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
             if (isExpanded) {
                 Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 16.dp))
 
-                Text("MESSAGE CONTENT:", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                Text("SCANNED CONTENT:", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("\"${threat.message}\"", color = Color.White, fontSize = 12.sp, fontStyle = FontStyle.Italic, lineHeight = 16.sp)
 
@@ -287,13 +347,13 @@ fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
                 Surface(color = Color(0xFF0B1221), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text("AI Engine", color = Color.Gray, fontSize = 10.sp)
-                            Text("Prohory Vision v2", color = NeonCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            Text("Scan ID", color = Color.Gray, fontSize = 10.sp)
+                            Text("#${threat.id}", color = NeonCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text("Pattern Cluster", color = Color.Gray, fontSize = 10.sp)
-                            Text(threat.patternCluster, color = NeonPurple, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            Text("Storage Location", color = Color.Gray, fontSize = 10.sp)
+                            Text(if (threat.isLocal) "Encrypted Local Storage" else "Secure Cloud Server", color = if (threat.isLocal) Color.Green else NeonCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -313,16 +373,18 @@ fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
                     TextButton(onClick = { isExpanded = false }) {
                         Text("CLOSE", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)),
-                        border = BorderStroke(1.dp, Color.Red),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("DELETE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) // Renamed from DESTROY
+                    if (threat.isLocal) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = onDelete,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)),
+                            border = BorderStroke(1.dp, Color.Red),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("DELETE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -330,25 +392,19 @@ fun ThreatIntelligenceCard(threat: ThreatArtifact, onDelete: () -> Unit) {
     }
 }
 
-// ==========================================
-// 📊 ATTACK FREQUENCY VISUALIZATION (WITH Y-AXIS LABELS)
-// ==========================================
 @Composable
 fun ThreatTimelineChart(totalThreats: Int) {
     Surface(
-        modifier = Modifier.fillMaxWidth().height(160.dp), // Slightly taller to fit labels nicely
+        modifier = Modifier.fillMaxWidth().height(160.dp),
         color = Color(0xFF131C2B),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, Color.White.copy(0.05f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("7-DAY THREAT ACTIVITY", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("7-DAY SCAN ACTIVITY", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Graph Area with Y-Axis and X-Axis
             Row(modifier = Modifier.fillMaxSize()) {
-
-                // Y-Axis Labels (Number of threats)
                 Column(
                     modifier = Modifier.fillMaxHeight().padding(end = 8.dp, bottom = 18.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
@@ -359,7 +415,6 @@ fun ThreatTimelineChart(totalThreats: Int) {
                     Text("0", color = Color.DarkGray, fontSize = 8.sp)
                 }
 
-                // Bar Chart Area
                 Column(modifier = Modifier.weight(1f)) {
                     val data = listOf(0.1f, 0.3f, 0.2f, 0.8f, 0.4f, 0.1f, if (totalThreats > 0) 1.0f else 0.1f)
                     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -384,7 +439,6 @@ fun ThreatTimelineChart(totalThreats: Int) {
                         }
                     }
 
-                    // X-Axis Labels (Days)
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         days.forEach { Text(it, color = Color.Gray, fontSize = 8.sp) }
                     }
