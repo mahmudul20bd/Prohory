@@ -61,7 +61,7 @@ function Home() {
 
   // Default News Data
   const defaultNews = [
-    { id: 1, title: "Global Phishing Attack Stopped", content: "CyberAware AI blocked 1M+ malicious messages yesterday.", image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070" },
+    { id: 1, title: "Global Phishing Attack Stopped", content: "Prohory AI blocked 1M+ malicious messages yesterday.", image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070" },
     { id: 2, title: "Android Malware Alert", content: "New SMS stealing malware detected in South Asia.", image: "https://images.unsplash.com/photo-1563206767-5b1d97299337?q=80&w=2070" },
     { id: 3, title: "Dark Web Leak", content: "Check if your email was compromised in the latest breach.", image: "https://images.unsplash.com/photo-1614064641938-3bcee52636c4?q=80&w=2070" }
   ];
@@ -302,7 +302,7 @@ function Home() {
                 className="text-center"
               >
                 {[
-                  { name: "Rahim Ahmed", role: "Business Owner", text: "CyberAware saved my business from a massive phishing attack." },
+                  { name: "Rahim Ahmed", role: "Business Owner", text: "Prohory saved my business from a massive phishing attack." },
                   { name: "Sarah Khan", role: "Freelancer", text: "I love the expert chat feature. Very helpful!" },
                   { name: "John Doe", role: "Developer", text: "The API integration is seamless and the detection rate is impressive." }
                 ].map((review, idx) => (

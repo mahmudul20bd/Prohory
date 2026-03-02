@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { FaUser, FaLock, FaShieldAlt } from 'react-icons/fa';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FaUser, FaLock, FaShieldAlt, FaExclamationTriangle } from 'react-icons/fa';
 import { Spinner } from 'react-bootstrap';
 import '../styles/Auth.css';
 
 function Login() {
-  const [username, setUsername] = useState(''); // Variable name updated for clarity
+  const [username, setUsername] = useState(''); 
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // 🔥 State for Custom Pending Approval Error Popup
+  const [showPendingError, setShowPendingError] = useState(false);
+  
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setShowPendingError(false); // Reset error state on new login attempt
+    
     try {
       // API Call to Backend
       const response = await axios.post('https://cyber-aware.onrender.com/api/auth/login', {
@@ -23,13 +29,12 @@ function Login() {
       });
 
       if (response.data.success) {
-        // 🔥 লজিক ফিক্স: রোল সেভ করার আগে trim এবং lowercase করা হচ্ছে
         const userRole = response.data.role ? response.data.role.toLowerCase().trim() : "user";
         
         // টোকেন এবং ইউজার ডাটা সেভ
         localStorage.setItem('token', response.data.token); 
         localStorage.setItem('username', response.data.username);
-        localStorage.setItem('role', userRole); // এটি সেটিংস পেজের সাইডবার ফিক্স করবে
+        localStorage.setItem('role', userRole); 
 
         // Role Based Navigation
         if (userRole === 'admin') navigate('/admin-dashboard');
@@ -41,8 +46,23 @@ function Login() {
       
     } catch (error) {
       console.error(error);
-      const errMsg = error.response?.data?.message || "ACCESS DENIED: Invalid Credentials.";
-      alert("❌ " + errMsg);
+      
+      // 🔥 FIX: Accurately differentiate between Invalid Credentials and Pending Expert
+      const status = error.response?.status;
+      const errorData = error.response?.data;
+      const errMsg = errorData?.message || (typeof errorData === 'string' ? errorData : "ACCESS DENIED: Invalid Credentials.");
+      
+      const errorMessageString = String(errMsg).toLowerCase();
+      
+      // Check if error specifically mentions pending approval or uses 403
+      const isPendingExpert = status === 403 || errorMessageString.includes('pending') || errorMessageString.includes('approv');
+
+      if (isPendingExpert) {
+          setShowPendingError(true);
+      } else {
+          alert("❌ " + errMsg);
+      }
+      
     } finally {
       setLoading(false);
     }
@@ -50,6 +70,28 @@ function Login() {
 
   return (
     <div className="auth-container">
+      
+      {/* 🔥 CUSTOM PENDING ERROR MODAL */}
+      <AnimatePresence>
+        {showPendingError && (
+          <motion.div initial={{opacity: 0}} animate={{opacity: 1}} exit={{opacity: 0}}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(5px)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <motion.div initial={{scale: 0.9, y: 20}} animate={{scale: 1, y: 0}} 
+              style={{ background: '#0a0f1c', border: '1px solid #ffca00', padding: '30px', borderRadius: '12px', textAlign: 'center', maxWidth: '400px' }}>
+              <FaExclamationTriangle size={45} color="#ffca00" className="mb-3" />
+              <h4 style={{ color: '#fff', fontWeight: 'bold', fontFamily: 'Orbitron' }}>ACCESS RESTRICTED</h4>
+              <p style={{ color: '#aaa', fontSize: '14px', marginBottom: '25px', lineHeight: '1.6' }}>
+                Your Expert Account is currently under review by the Prohory Admin team. 
+                You will be granted access once your credentials are verified.
+              </p>
+              <button className="btn w-100 fw-bold" style={{ background: '#ffca00', color: '#000' }} onClick={() => setShowPendingError(false)}>
+                ACKNOWLEDGE
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="cyber-grid"></div>
       <div className="scanline-overlay"></div>
 

@@ -224,3 +224,105 @@ body {
 .cyber-table td {
     color: #f8fafc !important; /* উজ্জ্বল সাদা */
 }
+
+/* 🔥 OCR Scanning Animation */
+.ocr-scan-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background-color: #00f3ff;
+  box-shadow: 0 0 15px 5px rgba(0, 243, 255, 0.6);
+  animation: ocrScan 2s linear infinite;
+  z-index: 10;
+}
+
+@keyframes ocrScan {
+  0% { top: 0; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* Danger Radar (Red) */
+.pulse-red .pulse-dot { background-color: #ff003c; box-shadow: 0 0 10px #ff003c; }
+.pulse-red .pulse-ring { border: 2px solid #ff003c; }
+
+/* Spam Radar (Orange/Yellow) */
+.pulse-orange .pulse-dot { background-color: #ffca00; box-shadow: 0 0 10px #ffca00; }
+.pulse-orange .pulse-ring { border: 2px solid #ffca00; }
+
+.pulsing-icon { position: relative; display: flex; justify-content: center; align-items: center; }
+
+.pulse-dot {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%; z-index: 2;
+}
+
+.pulse-ring {
+    position: absolute; width: 35px; height: 35px; border-radius: 50%; z-index: 1;
+    animation: radarPulse 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes radarPulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(3); opacity: 0; }
+}
+
+/* =========================================
+   Real-Time Threat Radar Animation
+========================================= */
+.custom-radar-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* মাঝখানের উজ্জ্বল বিন্দুটি */
+.radar-core {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    position: absolute;
+    z-index: 2;
+    box-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+}
+
+/* ছড়িয়ে পড়া ওয়েভ (Wave) বা রাডার রিং */
+.radar-ping {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    position: absolute;
+    z-index: 1;
+    animation: radar-wave 1.5s cubic-bezier(0.21, 0.53, 0.56, 0.8) infinite;
+    border: 2.5px solid currentColor;
+    box-shadow: 0 0 15px inset currentColor;
+}
+
+/* কালার ভেরিয়েশন */
+.pulse-danger { color: #ff003c; }
+.pulse-danger .radar-core { background-color: #ff003c; }
+
+.pulse-warning { color: #ffca00; }
+.pulse-warning .radar-core { background-color: #ffca00; }
+
+.pulse-info { color: #00f3ff; }
+.pulse-info .radar-core { background-color: #00f3ff; }
+
+/* অ্যানিমেশন কি-ফ্রেম (Keyframes) */
+@keyframes radar-wave {
+    0% {
+        transform: scale(0.3);
+        opacity: 1;
+    }
+    70% {
+        transform: scale(2.8);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(2.8);
+        opacity: 0;
+    }
+}

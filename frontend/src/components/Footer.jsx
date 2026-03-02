@@ -28,7 +28,7 @@ function Footer() {
           {/* Brand Section */}
           <Col md={4}>
             <h4 style={{ fontFamily: 'Orbitron', letterSpacing: '2px', color: '#fff' }}>
-              CYBER<span style={{ color: '#00f3ff' }}>AWARE</span>
+              PRO<span style={{ color: '#00f3ff' }}>HORY</span>
             </h4>
             <p className="text-secondary small mt-3">
               Advanced AI-powered threat detection system designed to secure digital communication channels against phishing and social engineering attacks.
