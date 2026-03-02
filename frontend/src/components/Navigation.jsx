@@ -10,7 +10,7 @@ function Navigation() {
     <Navbar expand="lg" variant="dark" fixed="top" style={{ background: 'rgba(2, 6, 12, 0.95)', borderBottom: '1px solid rgba(0, 243, 255, 0.1)' }}>
       <Container>
         <Navbar.Brand as={Link} to="/" style={{ fontFamily: 'Orbitron', letterSpacing: '2px' }}>
-          CYBER<span style={{ color: '#00f3ff' }}>AWARE</span>
+          PRO<span style={{ color: '#00f3ff' }}>HORY</span>
         </Navbar.Brand>
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
         <Navbar.Collapse id="basic-navbar-nav">

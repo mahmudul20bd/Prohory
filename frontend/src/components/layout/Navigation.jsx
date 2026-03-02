@@ -59,7 +59,7 @@ function Navigation() {
           {/* Logo Text */}
           <div className="d-flex flex-column" style={{ lineHeight: '1' }}>
             <span style={{ fontFamily: "'Chakra Petch', sans-serif", fontSize: '1.6rem', fontWeight: '700', color: '#fff', letterSpacing: '1px' }}>
-              CYBER<span style={{ color: '#00f0ff' }}>AWARE</span>
+              PRO<span style={{ color: '#00f0ff' }}>HORY</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: '#b0c4de', letterSpacing: '3px', textTransform: 'uppercase' }}>
               Secure Intelligence

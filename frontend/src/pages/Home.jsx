@@ -153,7 +153,7 @@ function Home() {
                 We Stop Scams Before They Start
               </h2>
               <p className="text-secondary lead mb-5">
-                CyberAware combines advanced AI algorithms with human expertise to detect threats that others miss.
+                Prohory combines advanced AI algorithms with human expertise to detect threats that others miss.
               </p>
               
               <div className="mb-5">

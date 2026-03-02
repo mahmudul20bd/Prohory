@@ -27,7 +27,7 @@ const Preloader = () => {
         <FaShieldAlt size={100} color="var(--neon-cyan)" style={{ filter: 'drop-shadow(0 0 15px var(--neon-cyan))' }} />
       </div>
       
-      <h2 className="font-tech text-white spacing-2 mb-3">CYBER<span className="text-cyan">AWARE</span></h2>
+      <h2 className="font-tech text-white spacing-2 mb-3">PRO<span className="text-cyan">HORY</span></h2>
       <div className="d-flex align-items-center gap-3">
           <Spinner animation="grow" variant="info" size="sm" />
           <span className="font-tech text-secondary" style={{ letterSpacing: '3px' }}>INITIALIZING SECURITY PROTOCOLS...</span>

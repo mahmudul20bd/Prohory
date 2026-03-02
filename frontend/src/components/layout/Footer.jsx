@@ -11,7 +11,7 @@ const Footer = () => {
           <Col lg={4}>
             <div className="d-flex align-items-center gap-2 mb-4">
                 <FaShieldAlt size={32} color="var(--neon-cyan)" />
-                <h3 className="font-tech m-0">CYBER<span className="text-cyan">AWARE</span></h3>
+                <h3 className="font-tech m-0">PRO<span className="text-cyan">HORY</span></h3>
             </div>
             <p className="text-secondary">Advanced AI-driven security platform protecting users from digital threats, scams, and phishing attacks in real-time.</p>
             <div className="d-flex gap-3 mt-4">
@@ -47,14 +47,14 @@ const Footer = () => {
             <ul className="list-unstyled d-flex flex-column gap-3 text-secondary">
                 <li className="d-flex gap-3"><FaMapMarkerAlt color="var(--neon-cyan)" /> 123 Cyber Street, Tech City</li>
                 <li className="d-flex gap-3"><FaPhone color="var(--neon-cyan)" /> +880 1234 567890</li>
-                <li className="d-flex gap-3"><FaEnvelope color="var(--neon-cyan)" /> support@cyberaware.com</li>
+                <li className="d-flex gap-3"><FaEnvelope color="var(--neon-cyan)" /> support@prohory.bd</li>
             </ul>
           </Col>
         </Row>
         
         <Row className="mt-5 pt-4 border-top border-secondary" style={{borderColor: 'rgba(255,255,255,0.1) !important'}}>
             <Col className="text-center text-secondary">
-                <small>&copy; {new Date().getFullYear()} CyberAware. All rights reserved. Built for the future.</small>
+                <small>&copy; {new Date().getFullYear()} Prohory. All rights reserved. Built for the future.</small>
             </Col>
         </Row>
       </Container>
