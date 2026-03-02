@@ -281,16 +281,17 @@ const ExpertChat = () => {
                             </div>
                             <h4>End This Session?</h4>
                             <p>Are you sure you want to end this secure session? The chat will be archived.</p>
+                            {/* 🔥 FIX: CLEAR AND VISIBLE MODAL BUTTONS */}
                             <div className="modal-actions d-flex justify-content-center gap-3 mt-4">
                                 <button
                                     className="btn btn-outline-secondary fw-bold px-4 py-2"
-                                    style={{ borderRadius: '8px' }}
+                                    style={{ borderRadius: '8px', color: '#cbd5e1', border: '1px solid #cbd5e1' }}
                                     onClick={() => setShowEndModal(false)}
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    className="btn fw-bold px-4 py-2"
+                                    className="btn fw-bold px-4 py-2 shadow"
                                     style={{ background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '8px' }}
                                     onClick={confirmEndSession}
                                 >
