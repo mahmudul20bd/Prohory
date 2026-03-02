@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Carousel, Button, Form, Card, ProgressBar, Spinner } from 'react-bootstrap';
-import { Link, useNavigate } from 'react-router-dom'; // 🔥 useNavigate যুক্ত করা হয়েছে
-import { motion, AnimatePresence } from 'framer-motion'; // For High Quality Animation
+import { Link, useNavigate } from 'react-router-dom'; 
+import { motion, AnimatePresence } from 'framer-motion'; 
 import axios from 'axios';
 import { 
   FaShieldAlt, FaUserSecret, FaRobot, FaCheckCircle, FaUsers, 
@@ -96,14 +96,13 @@ const AnimatedCounter = ({ target, suffix }) => {
 const Preloader = () => {
   return (
     <motion.div
-      // পুরো কন্টেইনারটি সবার শেষে হাইড হবে
       exit={{ opacity: 0, transition: { delay: 1.2, duration: 0.1 } }}
       style={{
         position: 'fixed', top: 0, left: 0, width: '100%', height: '100vh',
         zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center',
       }}
     >
-      {/* --- বাম পাশের পর্দা (Left Curtain) --- */}
+      {/* --- Left Curtain --- */}
       <motion.div
         initial={{ x: 0 }}
         exit={{ x: "-100%", transition: { duration: 1, ease: [0.77, 0, 0.175, 1], delay: 0.3 } }}
@@ -115,7 +114,7 @@ const Preloader = () => {
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'repeating-linear-gradient(0deg, rgba(0,247,255,0.03) 0px, rgba(0,247,255,0.03) 1px, transparent 1px, transparent 5px)' }}></div>
       </motion.div>
 
-      {/* --- ডান পাশের পর্দা (Right Curtain) --- */}
+      {/* --- Right Curtain --- */}
       <motion.div
         initial={{ x: 0 }}
         exit={{ x: "100%", transition: { duration: 1, ease: [0.77, 0, 0.175, 1], delay: 0.3 } }}
@@ -127,57 +126,39 @@ const Preloader = () => {
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'repeating-linear-gradient(0deg, rgba(0,247,255,0.03) 0px, rgba(0,247,255,0.03) 1px, transparent 1px, transparent 5px)' }}></div>
       </motion.div>
 
-      {/* --- মাঝখানের লোডিং কন্টেন্ট (Center Content) --- */}
+      {/* --- Center Content --- */}
       <motion.div
         initial={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 1.5, filter: "blur(10px)", transition: { duration: 0.4, ease: "easeIn" } }}
         style={{ zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
       >
-        {/* 🔥 Advanced Cyber Core Animation */}
         <div style={{ position: 'relative', marginBottom: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          
-          {/* Outer Rotating Ring */}
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
-            style={{
-              width: '140px', height: '140px', borderRadius: '50%',
-              border: '2px dashed rgba(0, 243, 255, 0.5)',
-              position: 'absolute'
-            }}
+            style={{ width: '140px', height: '140px', borderRadius: '50%', border: '2px dashed rgba(0, 243, 255, 0.5)', position: 'absolute' }}
           />
-
-          {/* Inner Fast Rotating Ring */}
           <motion.div
             animate={{ rotate: -360 }}
             transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-            style={{
-              width: '110px', height: '110px', borderRadius: '50%',
-              border: '3px solid transparent', borderTopColor: '#00f3ff', borderBottomColor: '#ff003c',
-              position: 'absolute'
-            }}
+            style={{ width: '110px', height: '110px', borderRadius: '50%', border: '3px solid transparent', borderTopColor: '#00f3ff', borderBottomColor: '#ff003c', position: 'absolute' }}
           />
-
-          {/* Shield Icon Pulse */}
           <motion.div
             animate={{ scale: [1, 1.1, 1] }}
             transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
           >
             <FaShieldAlt size={60} color="#00f3ff" style={{ filter: 'drop-shadow(0 0 20px #00f3ff)' }} />
           </motion.div>
-
         </div>
         
         <h2 className="text-white mb-4" style={{fontFamily: 'Orbitron', letterSpacing: '3px', fontWeight: 'bold'}}>
           PRO<span style={{color: '#00f3ff', textShadow: '0 0 10px #00f3ff'}}>HORY</span>
         </h2>
 
-        {/* 🔥 Hacking / Typewriter Progress effect */}
         <div className="d-flex flex-column align-items-center">
             <span className="text-info fw-bold" style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '13px' }}>
               INITIALIZING...
             </span>
-            {/* Cyber Progress Bar */}
             <div style={{ width: '200px', height: '2px', background: 'rgba(255,255,255,0.1)', marginTop: '15px', position: 'relative', overflow: 'hidden' }}>
                 <motion.div 
                   initial={{ x: '-100%' }}
@@ -194,10 +175,9 @@ const Preloader = () => {
 
 function Home() {
   const [news, setNews] = useState([]);
-  const [isLoading, setIsLoading] = useState(true); // State for Preloader
-  const navigate = useNavigate(); // 🔥 রিডাইরেক্ট করার জন্য
+  const [isLoading, setIsLoading] = useState(true); 
+  const navigate = useNavigate(); 
 
-  // Real Company Names instead of "PARTNER-1"
   const partners = [
     { name: "TechCorp Global", icon: <FaBuilding /> },
     { name: "SecureNet Ltd.", icon: <FaShieldAlt /> },
@@ -208,7 +188,6 @@ function Home() {
     { name: "Quantum Cyber", icon: <FaRobot /> }
   ];
 
-  // Default News Data
   const defaultNews = [
     { id: 1, title: "Global Phishing Attack Stopped", content: "Prohory AI blocked 1M+ malicious messages yesterday.", image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" },
     { id: 2, title: "Android Malware Alert", content: "New SMS stealing malware detected in South Asia.", image: "https://images.unsplash.com/photo-1563986768609-322da13575f3?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80" },
@@ -216,7 +195,8 @@ function Home() {
   ];
 
   useEffect(() => {
-    // Hide Preloader after 2.5 seconds to finish animation smoothly
+    document.body.style.overflow = 'auto';
+
     const timer = setTimeout(() => {
       setIsLoading(false);
     }, 2500);
@@ -229,34 +209,31 @@ function Home() {
     };
     fetchNews();
 
-    return () => clearTimeout(timer);
+    return () => {
+        clearTimeout(timer);
+        document.body.style.overflow = 'auto'; 
+    };
   }, []);
 
-  // 🔥 FIX: TRY LIVE SCANNER বাটনে ক্লিক করলে লগইন স্ট্যাটাস চেক
+  // 🔥 FIX: Directly navigating to /login without any condition
   const handleLiveScannerClick = () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      navigate('/userdashboard');
-    } else {
-      navigate('/login');
-    }
+    document.body.style.overflow = 'auto';
+    setIsLoading(false);
+    navigate('/login');
   };
 
   return (
-    // 🔥 FIX: `isLoading` true থাকলে স্ক্রল বন্ধ থাকবে
     <div className="home-wrapper" style={{ overflowX: 'hidden', height: isLoading ? '100vh' : 'auto', overflowY: isLoading ? 'hidden' : 'auto' }}>
       
       <AnimatePresence>
         {isLoading && <Preloader />}
       </AnimatePresence>
 
-      {/* 🔥 FIX: Main content is only visible after preloader finishes */}
       <div style={{ opacity: isLoading ? 0 : 1, pointerEvents: isLoading ? 'none' : 'auto', transition: 'opacity 0.5s ease-in' }}>
 
         {/* ==================== 1. HERO SLIDER ==================== */}
         <div className="hero-slider-area position-relative">
           
-          {/* 🔥 HIGHLY VISIBLE BUBBLE PARTICLES 🔥 */}
           <ul className="hero-particles">
               <li></li><li></li><li></li><li></li><li></li>
               <li></li><li></li><li></li><li></li><li></li>
@@ -298,7 +275,6 @@ function Home() {
                     <h1 className="hero-title text-white mb-3">AI THREAT DETECTION</h1>
                     <p className="hero-desc-visible mb-4 d-inline-block">Instantly analyze messages and URLs with 99.9% accuracy.</p>
                     <br />
-                    {/* 🔥 FIX: onClick ইভেন্ট যোগ করা হয়েছে এবং Link ট্যাগ সরানো হয়েছে */}
                     <Button 
                       variant="danger" 
                       size="lg" 
@@ -315,7 +291,7 @@ function Home() {
           </Carousel>
         </div>
 
-        {/* ==================== 2. ABOUT SECTION (SCROLL REVEAL) ==================== */}
+        {/* ==================== 2. ABOUT SECTION ==================== */}
         <motion.section 
           initial="hidden"
           whileInView="visible"
@@ -352,7 +328,6 @@ function Home() {
               </Col>
               
               <Col lg={6} className="text-center">
-                {/* Floating Image Animation */}
                 <motion.img 
                   variants={scaleIn}
                   src="https://cdn-icons-png.flaticon.com/512/2083/2083256.png" 
@@ -365,7 +340,7 @@ function Home() {
           </Container>
         </motion.section>
 
-        {/* ==================== 3. SERVICES SECTION (HOVER EFFECTS) ==================== */}
+        {/* ==================== 3. SERVICES SECTION ==================== */}
         <section className="service-section" style={{ background: '#02060c' }}>
           <Container>
             <div className="d-flex justify-content-between align-items-end mb-5">
@@ -428,7 +403,7 @@ function Home() {
           </Container>
         </section>
 
-        {/* ==================== 5. LATEST NEWS (UPDATED ANIMATION & ALIGNMENT) ==================== */}
+        {/* ==================== 5. LATEST NEWS ==================== */}
         <section className="py-5">
           <Container>
             <div className="text-center mb-5">
@@ -438,7 +413,6 @@ function Home() {
             <Row className="g-4">
               {news.map((item, idx) => (
                 <Col md={4} key={item.id}>
-                  {/* 🔥 Staggered Entrance Animation */}
                   <motion.div
                     initial={{ opacity: 0, y: 50 }}
                     whileInView={{ opacity: 1, y: 0 }}
@@ -446,7 +420,6 @@ function Home() {
                     viewport={{ once: true }}
                     className="h-100"
                   >
-                    {/* 🔥 Height 100% and Flex Column applied for alignment */}
                     <Card className="h-100 bg-dark border-secondary text-white overflow-hidden shadow hover-scale" style={{ borderRadius: '15px' }}>
                       <div style={{ overflow: 'hidden' }}>
                         <motion.img 
@@ -460,7 +433,6 @@ function Home() {
                       <Card.Body className="d-flex flex-column p-4">
                         <small className="text-info mb-3 d-block fw-bold" style={{ letterSpacing: '1px', fontSize: '11px' }}>LATEST UPDATE</small>
                         <Card.Title className="fw-bold font-tech mb-3" style={{ fontSize: '18px', lineHeight: '1.4' }}>{item.title}</Card.Title>
-                        {/* 🔥 mt-auto pushes the text to the bottom ensuring alignment */}
                         <Card.Text className="text-secondary small mb-0 mt-auto" style={{ lineHeight: '1.6' }}>
                           {item.content.length > 100 ? item.content.substring(0, 100) + '...' : item.content}
                         </Card.Text>
@@ -473,7 +445,7 @@ function Home() {
           </Container>
         </section>
 
-        {/* ==================== 6. CUSTOMER FEEDBACK (AUTOMATIC SLIDER) ==================== */}
+        {/* ==================== 6. CUSTOMER FEEDBACK ==================== */}
         <section style={{ backgroundColor: 'rgba(11, 17, 30, 0.5)', padding: '80px 0' }}>
           <Container>
             <motion.div 
@@ -487,14 +459,7 @@ function Home() {
             
             <Row className="justify-content-center">
               <Col lg={8}>
-                {/* Added interval, indicators, pause props for AUTOMATIC ANIMATION */}
-                <Carousel 
-                  indicators={true} 
-                  controls={false} 
-                  interval={3000} 
-                  pause={false}
-                  className="text-center"
-                >
+                <Carousel indicators={true} controls={false} interval={3000} pause={false} className="text-center">
                   {[
                     { name: "Rahim Ahmed", role: "Business Owner", text: "Prohory saved my business from a massive phishing attack." },
                     { name: "Sarah Khan", role: "Freelancer", text: "I love the expert chat feature. Very helpful!" },
@@ -555,7 +520,6 @@ function Home() {
             </div>
             <div className="slider-container">
               <div className="slider-track" style={{ display: 'flex', gap: '20px' }}>
-                {/* Duplicate array for seamless loop */}
                 {[...partners, ...partners].map((item, i) => (
                   <div className="slider-item" key={i} style={{ minWidth: '200px' }}>
                      <div className="bg-white rounded px-4 py-2 d-flex align-items-center justify-content-center shadow-sm w-100 h-100 hover-scale">
