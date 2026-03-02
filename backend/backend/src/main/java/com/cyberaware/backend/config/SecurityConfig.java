@@ -57,7 +57,7 @@ public class SecurityConfig {
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174")); // ফ্রন্টএন্ড পোর্ট
+        config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174","https://prohory.vercel.app")); // ফ্রন্টএন্ড পোর্ট
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
