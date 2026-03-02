@@ -1,18 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
-import { 
-    FaPaperPlane, FaUserSecret, FaPaperclip, 
+import {
+    FaPaperPlane, FaUserSecret, FaPaperclip,
     FaCircle, FaShieldAlt, FaCheckCircle, FaInbox, FaArchive, FaRobot, FaTimes, FaExclamationTriangle
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-toastify';
-import '../styles/Chat.css'; 
+import axios from 'axios';
+import '../styles/Chat.css';
+
+// 🔥 Helper function to securely mask user's real username into a CASE ID
+const maskUsername = (uname) => {
+    if (!uname) return "CASE-UNKNOWN";
+    if (uname.toUpperCase().startsWith("CASE-")) return uname.toUpperCase();
+
+    let hash = 0;
+    for (let i = 0; i < uname.length; i++) {
+        hash = uname.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hex = Math.abs(hash).toString(16).substring(0, 6).toUpperCase().padStart(6, '0');
+    return `CASE-${hex}`;
+};
 
 const ExpertChat = () => {
     const [conversations, setConversations] = useState({});
-    const [caseStatus, setCaseStatus] = useState({}); 
-    const [activeContact, setActiveContact] = useState(null); 
+    const [caseStatus, setCaseStatus] = useState({});
+    const [activeContact, setActiveContact] = useState(null);
     const [inputValue, setInputValue] = useState("");
     const [stompClient, setStompClient] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
@@ -32,7 +46,7 @@ const ExpertChat = () => {
     }, []);
 
     useEffect(() => {
-        if(Object.keys(caseStatus).length > 0) {
+        if (Object.keys(caseStatus).length > 0) {
             localStorage.setItem('expert_case_status', JSON.stringify(caseStatus));
         }
     }, [caseStatus]);
@@ -47,31 +61,53 @@ const ExpertChat = () => {
                     const data = await response.json();
                     const grouped = {};
                     const statusObj = { ...caseStatus };
-                    
+                    const involvedExperts = {}; // 🔥 Track which experts are involved in which chat
+
                     data.forEach(msg => {
                         if (msg.senderUsername === 'SYSTEM') return;
-                        
-                        let isUserToExpert = msg.receiverUsername !== 'Support Pool' && msg.receiverUsername !== 'All';
-                        let contact = msg.senderUsername === currentUser || msg.receiverUsername === currentUser ? 
-                                      (msg.senderUsername === currentUser ? msg.receiverUsername : msg.senderUsername) : 
-                                      (isUserToExpert ? msg.senderUsername : msg.senderUsername); 
+
+                        let contact = msg.senderUsername;
+                        if (msg.receiverUsername === 'Support Pool' || msg.receiverUsername === 'All') {
+                            contact = msg.senderUsername;
+                        } else if (msg.senderUsername === currentUser) {
+                            contact = msg.receiverUsername;
+                        } else if (msg.receiverUsername === currentUser) {
+                            contact = msg.senderUsername;
+                        } else {
+                            if (grouped[msg.receiverUsername]) contact = msg.receiverUsername;
+                            else if (grouped[msg.senderUsername]) contact = msg.senderUsername;
+                            else contact = msg.senderUsername;
+                        }
 
                         if (!contact || contact === 'Support Pool' || contact === 'All') return;
-                        
+
                         if (!grouped[contact]) grouped[contact] = [];
                         grouped[contact].push(msg);
 
+                        // Track involvement
+                        if (!involvedExperts[contact]) involvedExperts[contact] = new Set();
+                        if (msg.senderUsername !== contact && msg.senderUsername !== 'SYSTEM') {
+                            involvedExperts[contact].add(msg.senderUsername);
+                        }
+
                         if (!statusObj[contact]) statusObj[contact] = 'WAITING';
-                        
+
                         if (msg.content === '[SYS:CLOSED]') {
-                            statusObj[contact] = 'RESOLVED';
-                        } else if (msg.senderUsername === currentUser && statusObj[contact] !== 'RESOLVED') {
+                            // 🔥 FIX: Resolved cases should ONLY be visible to the expert who resolved them
+                            if (involvedExperts[contact].has(currentUser)) {
+                                statusObj[contact] = 'RESOLVED';
+                            } else {
+                                statusObj[contact] = 'HIDDEN'; // Hide from other experts
+                            }
+                        } else if (msg.senderUsername === currentUser && statusObj[contact] !== 'RESOLVED' && statusObj[contact] !== 'HIDDEN') {
                             statusObj[contact] = 'MINE';
-                        } else if (msg.senderUsername !== currentUser && msg.receiverUsername !== 'Support Pool' && msg.receiverUsername !== 'All' && msg.receiverUsername === contact) {
-                            statusObj[contact] = 'TAKEN_BY_OTHER';
+                        } else if (msg.senderUsername !== contact && msg.senderUsername !== currentUser && msg.senderUsername !== 'SYSTEM') {
+                            if (statusObj[contact] !== 'RESOLVED' && statusObj[contact] !== 'HIDDEN') {
+                                statusObj[contact] = 'TAKEN_BY_OTHER';
+                            }
                         }
                     });
-                    
+
                     setConversations(grouped);
                     setCaseStatus(prev => ({ ...prev, ...statusObj }));
                 }
@@ -87,36 +123,52 @@ const ExpertChat = () => {
 
         const socket = new SockJS('https://cyber-aware.onrender.com/ws');
         const client = Stomp.over(socket);
-        client.debug = null; 
+        client.debug = null;
 
         client.connect(token ? { Authorization: `Bearer ${token}` } : {}, () => {
             stompClientRef.current = client;
             setStompClient(client);
-            
+
             client.subscribe('/topic/messages', (sdkEvent) => {
                 const msg = JSON.parse(sdkEvent.body);
-                if (msg.senderUsername === 'SYSTEM') return; 
+                if (msg.senderUsername === 'SYSTEM') return;
 
                 let contactUser = msg.senderUsername;
-                
-                if (msg.senderUsername === currentUser) {
+                let isMeInvolved = false;
+                let isOtherExpert = false;
+
+                if (msg.receiverUsername === 'Support Pool' || msg.receiverUsername === 'All') {
+                    contactUser = msg.senderUsername;
+                } else if (msg.senderUsername === currentUser) {
                     contactUser = msg.receiverUsername;
+                    isMeInvolved = true;
                 } else if (msg.receiverUsername === currentUser) {
                     contactUser = msg.senderUsername;
-                } else if (msg.receiverUsername === 'Support Pool' || msg.receiverUsername === 'All') {
-                    contactUser = msg.senderUsername;
-                } else if (msg.senderUsername !== currentUser && msg.receiverUsername !== currentUser) {
+                    isMeInvolved = true;
+                } else {
+                    // Another expert communicating with a user
                     contactUser = msg.receiverUsername;
-                    setCaseStatus(prev => ({ ...prev, [contactUser]: 'TAKEN_BY_OTHER' }));
+                    isOtherExpert = true;
                 }
 
                 if (!contactUser || contactUser === 'Support Pool' || contactUser === 'All') return;
 
                 setCaseStatus(prev => {
-                    if (!prev[contactUser] && msg.senderUsername !== currentUser && msg.receiverUsername === 'Support Pool') {
+                    const currentStatus = prev[contactUser];
+
+                    if (msg.content === '[SYS:CLOSED]') {
+                        // 🔥 FIX: Hide resolved cases from experts who were not involved
+                        return { ...prev, [contactUser]: (currentStatus === 'MINE' || isMeInvolved) ? 'RESOLVED' : 'HIDDEN' };
+                    }
+
+                    if (isMeInvolved && currentStatus !== 'RESOLVED' && currentStatus !== 'HIDDEN') {
+                        return { ...prev, [contactUser]: 'MINE' };
+                    } else if (isOtherExpert && currentStatus !== 'RESOLVED' && currentStatus !== 'HIDDEN') {
+                        return { ...prev, [contactUser]: 'TAKEN_BY_OTHER' };
+                    } else if (!currentStatus) {
                         return { ...prev, [contactUser]: 'WAITING' };
                     }
-                    if (msg.content === '[SYS:CLOSED]') return { ...prev, [contactUser]: 'RESOLVED' };
+
                     return prev;
                 });
 
@@ -145,10 +197,12 @@ const ExpertChat = () => {
 
     const sendMsg = (fileUrl = null, autoText = null) => {
         const textToSend = autoText || inputValue.trim();
+        if (!textToSend && !fileUrl) return;
+
         if (stompClient && activeContact) {
             const msgObjToSend = {
                 senderUsername: currentUser,
-                receiverUsername: activeContact, 
+                receiverUsername: activeContact,
                 content: textToSend || "Attached Evidence",
                 fileUrl: fileUrl || null
             };
@@ -165,7 +219,7 @@ const ExpertChat = () => {
     };
 
     const confirmEndSession = () => {
-        sendMsg(null, "[SYS:CLOSED]"); 
+        sendMsg(null, "[SYS:CLOSED]");
         setCaseStatus(prev => ({ ...prev, [activeContact]: 'RESOLVED' }));
         setActiveContact(null);
         setShowEndModal(false);
@@ -184,7 +238,7 @@ const ExpertChat = () => {
             const scanResponse = await fetch('https://cyber-aware.onrender.com/api/malware/scan', {
                 method: 'POST', headers: authHeader, body: formData
             });
-            
+
             if (scanResponse.ok) {
                 const scanData = await scanResponse.json();
                 if (scanData.status === "DANGER") {
@@ -200,12 +254,12 @@ const ExpertChat = () => {
 
             if (response.ok) {
                 const data = await response.json();
-                sendMsg(data.fileUrl); 
+                sendMsg(data.fileUrl);
             } else alert("Failed to upload file.");
         } catch (error) {
             alert("Error uploading file.");
         } finally {
-            setIsUploading(false); e.target.value = null; 
+            setIsUploading(false); e.target.value = null;
         }
     };
 
@@ -216,20 +270,32 @@ const ExpertChat = () => {
     const currentStatus = activeContact ? caseStatus[activeContact] : null;
 
     return (
-        <motion.div initial={{opacity: 0}} animate={{opacity: 1}} className="expert-chat-wrapper">
-            
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="expert-chat-wrapper">
+
             <AnimatePresence>
                 {showEndModal && (
-                    <motion.div className="custom-modal-overlay" initial={{opacity: 0}} animate={{opacity: 1}} exit={{opacity: 0}}>
-                        <motion.div className="custom-modal-content" initial={{scale: 0.9, y: 15}} animate={{scale: 1, y: 0}} exit={{scale: 0.9, y: 15}}>
+                    <motion.div className="custom-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                        <motion.div className="custom-modal-content" initial={{ scale: 0.9, y: 15 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 15 }}>
                             <div className="modal-icon-wrapper">
                                 <FaShieldAlt size={24} color="#ef4444" />
                             </div>
                             <h4>End This Session?</h4>
                             <p>Are you sure you want to end this secure session? The chat will be archived.</p>
-                            <div className="modal-actions">
-                                <button className="btn-cancel" onClick={() => setShowEndModal(false)}>Cancel</button>
-                                <button className="btn-confirm" onClick={confirmEndSession}>End Session</button>
+                            <div className="modal-actions d-flex justify-content-center gap-3 mt-4">
+                                <button
+                                    className="btn btn-outline-secondary fw-bold px-4 py-2"
+                                    style={{ borderRadius: '8px' }}
+                                    onClick={() => setShowEndModal(false)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn fw-bold px-4 py-2"
+                                    style={{ background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '8px' }}
+                                    onClick={confirmEndSession}
+                                >
+                                    End Session
+                                </button>
                             </div>
                         </motion.div>
                     </motion.div>
@@ -242,23 +308,22 @@ const ExpertChat = () => {
 
             <div className={`chat-sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="sidebar-header">
-                    <FaRobot style={{color: '#00E5FF', fontSize: '18px'}} />
+                    <FaRobot style={{ color: '#00E5FF', fontSize: '18px' }} />
                     <div>
-                        <h3 style={{fontSize: '13px'}}>Communication</h3>
-                        <span className="agent-badge text-muted" style={{fontSize: '10px'}}>Agent: {currentUser}</span>
+                        <h3 style={{ fontSize: '13px' }}>Communication</h3>
+                        <span className="agent-badge text-muted" style={{ fontSize: '10px' }}>Agent: {currentUser}</span>
                     </div>
                 </div>
-                
+
                 <div className="contact-list-container custom-scrollbar">
                     <div className="list-section-title">
                         Waiting Queue <span className="badge-count">{waitingQueueList.length}</span>
                     </div>
                     <AnimatePresence>
                         {waitingQueueList.map((contact) => (
-                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => {setActiveContact(contact); setIsSidebarOpen(false);}} isWaiting={true} />
+                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => { setActiveContact(contact); setIsSidebarOpen(false); }} isWaiting={true} />
                         ))}
-                        {/* 🔥 ALIGNMENT FIXED: Centered text */}
-                        {waitingQueueList.length === 0 && <div className="empty-list-text text-center mt-3" style={{fontSize:'12px', color: '#64748b', width: '100%'}}>No users waiting.</div>}
+                        {waitingQueueList.length === 0 && <div className="empty-list-text text-center mt-3" style={{ fontSize: '12px', color: '#64748b', width: '100%' }}>No users waiting.</div>}
                     </AnimatePresence>
 
                     <div className="list-section-title mt-2">
@@ -266,7 +331,7 @@ const ExpertChat = () => {
                     </div>
                     <AnimatePresence>
                         {activeSessionsList.map((contact) => (
-                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => {setActiveContact(contact); setIsSidebarOpen(false);}} />
+                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => { setActiveContact(contact); setIsSidebarOpen(false); }} />
                         ))}
                     </AnimatePresence>
 
@@ -275,7 +340,7 @@ const ExpertChat = () => {
                     </div>
                     <AnimatePresence>
                         {resolvedSessionsList.map((contact) => (
-                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => {setActiveContact(contact); setIsSidebarOpen(false);}} isResolved={true} />
+                            <ContactCard key={contact} contact={contact} msgs={conversations[contact]} isActive={activeContact === contact} onClick={() => { setActiveContact(contact); setIsSidebarOpen(false); }} isResolved={true} />
                         ))}
                     </AnimatePresence>
                 </div>
@@ -286,13 +351,14 @@ const ExpertChat = () => {
                     <>
                         <div className="chat-header">
                             <div className="header-user-info">
-                                <h2 style={{fontSize: '15px', fontWeight: 'bold'}}>{activeContact}</h2>
-                                <p style={{color: currentStatus === 'MINE' ? '#10B981' : currentStatus === 'RESOLVED' ? '#94a3b8' : '#F59E0B', fontSize: '11px'}}>
+                                {/* 🔥 MASKED USERNAME IN CHAT HEADER */}
+                                <h2 style={{ fontSize: '15px', fontWeight: 'bold' }}>{maskUsername(activeContact)}</h2>
+                                <p style={{ color: currentStatus === 'MINE' ? '#10B981' : currentStatus === 'RESOLVED' ? '#94a3b8' : '#F59E0B', fontSize: '11px' }}>
                                     {currentStatus === 'MINE' ? "● Secure Channel Established" : currentStatus === 'RESOLVED' ? "● Session Closed" : "● Awaiting Assignment"}
                                 </p>
                             </div>
                             {currentStatus === 'MINE' && (
-                                <button className="btn btn-outline-danger btn-sm rounded-pill fw-bold px-3 shadow-sm end-btn-hover" style={{fontSize: '11px'}} onClick={() => setShowEndModal(true)}>
+                                <button className="btn btn-outline-danger btn-sm rounded-pill fw-bold px-3 shadow-sm end-btn-hover" style={{ fontSize: '11px' }} onClick={() => setShowEndModal(true)}>
                                     END SESSION
                                 </button>
                             )}
@@ -301,12 +367,12 @@ const ExpertChat = () => {
                         <div className="messages-container custom-scrollbar">
                             <AnimatePresence>
                                 {(conversations[activeContact] || []).map((m, i) => {
-                                    
+
                                     if (m.content && m.content.startsWith('🚨 [SYSTEM ALERT]')) {
                                         return (
-                                            <motion.div layout initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} key={i} className="text-center my-2 w-100 d-flex justify-content-center">
-                                                <div className="bg-danger text-white px-3 py-2 rounded-pill shadow-sm" style={{fontFamily: 'Inter', fontSize: '12px', maxWidth: '80%'}}>
-                                                    <FaExclamationTriangle className="me-2"/> {m.content}
+                                            <motion.div layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} key={i} className="text-center my-2 w-100 d-flex justify-content-center">
+                                                <div className="bg-danger text-white px-3 py-2 rounded-pill shadow-sm" style={{ fontFamily: 'Inter', fontSize: '12px', maxWidth: '80%' }}>
+                                                    <FaExclamationTriangle className="me-2" /> {m.content}
                                                 </div>
                                             </motion.div>
                                         );
@@ -314,9 +380,9 @@ const ExpertChat = () => {
 
                                     if (m.content === '[SYS:CLOSED]') {
                                         return (
-                                            <motion.div layout initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} key={i} className="text-center my-2">
-                                                <span className="badge bg-secondary px-3 py-1" style={{fontFamily: 'Inter', fontSize: '11px', letterSpacing: '1px'}}>
-                                                    🔒 SESSION CLOSED BY AGENT
+                                            <motion.div layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} key={i} className="text-center my-2">
+                                                <span className="badge bg-secondary px-3 py-1" style={{ fontFamily: 'Inter', fontSize: '11px', letterSpacing: '1px' }}>
+                                                    🔒 SESSION CLOSED BY YOU
                                                 </span>
                                             </motion.div>
                                         );
@@ -324,9 +390,9 @@ const ExpertChat = () => {
 
                                     const isMe = m.senderUsername === currentUser;
                                     return (
-                                        <motion.div 
+                                        <motion.div
                                             layout
-                                            initial={{ opacity: 0, y: 10 }} 
+                                            initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
                                             transition={{ type: "spring", stiffness: 400, damping: 25 }}
                                             key={i} className={`message-wrapper ${isMe ? 'msg-me' : 'msg-user'}`}
@@ -335,7 +401,7 @@ const ExpertChat = () => {
                                                 {m.fileUrl && <img src={m.fileUrl} alt="Attachment" className="chat-image" />}
                                                 {m.content && m.content !== "Attached Evidence" && <span>{m.content}</span>}
                                             </div>
-                                            <span className="msg-time">{m.timestamp || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                            <span className="msg-time">{m.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                         </motion.div>
                                     );
                                 })}
@@ -345,38 +411,38 @@ const ExpertChat = () => {
 
                         <div className="chat-input-area">
                             {currentStatus === 'WAITING' ? (
-                                <motion.div initial={{opacity:0, y:15}} animate={{opacity:1, y:0}} className="accept-case-massive-panel">
+                                <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="accept-case-massive-panel">
                                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="btn-accept-massive" onClick={handleAcceptCase}>
-                                        <FaCheckCircle size={15}/> ACCEPT CASE TO REPLY
+                                        <FaCheckCircle size={15} /> ACCEPT CASE TO REPLY
                                     </motion.button>
-                                    <small className="text-secondary mt-2 d-block" style={{fontFamily: 'Inter', fontSize: '12px'}}>
+                                    <small className="text-secondary mt-2 d-block" style={{ fontFamily: 'Inter', fontSize: '12px' }}>
                                         Clicking this will assign the case exclusively to you.
                                     </small>
                                 </motion.div>
                             ) : currentStatus === 'RESOLVED' ? (
-                                <motion.div initial={{opacity:0}} animate={{opacity:1}} className="resolved-badge">
-                                    <FaArchive size={13}/> Case resolved. Read-only mode active.
+                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="resolved-badge">
+                                    <FaArchive size={13} /> Case resolved. Read-only mode active.
                                 </motion.div>
                             ) : currentStatus === 'TAKEN_BY_OTHER' ? (
-                                <motion.div initial={{opacity:0}} animate={{opacity:1}} className="resolved-badge text-warning">
-                                    <FaUserSecret size={13}/> This case was claimed by another expert.
+                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="resolved-badge text-warning">
+                                    <FaUserSecret size={13} /> This case was claimed by another expert.
                                 </motion.div>
                             ) : (
-                                <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} className="input-box-wrapper w-100 shadow-sm">
-                                    <input type="file" style={{display: 'none'}} ref={fileInputRef} onChange={handleFileUpload} />
+                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="input-box-wrapper w-100 shadow-sm">
+                                    <input type="file" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileUpload} />
                                     <button className="icon-btn" onClick={() => fileInputRef.current.click()} disabled={isUploading}>
                                         {isUploading ? <div className="spinner-border spinner-border-sm text-info"></div> : <FaPaperclip size={15} />}
                                     </button>
 
-                                    <input 
+                                    <input
                                         type="text" className="text-input"
-                                        value={inputValue} onChange={(e) => setInputValue(e.target.value)} 
+                                        value={inputValue} onChange={(e) => setInputValue(e.target.value)}
                                         onKeyPress={(e) => e.key === 'Enter' && sendMsg()}
-                                        placeholder="Type your secure message..." 
+                                        placeholder="Type your secure message..."
                                     />
-                                    
+
                                     <button className="icon-btn send-btn" onClick={() => sendMsg()} disabled={!inputValue.trim() && !isUploading}>
-                                        <FaPaperPlane size={13}/>
+                                        <FaPaperPlane size={13} />
                                     </button>
                                 </motion.div>
                             )}
@@ -384,11 +450,11 @@ const ExpertChat = () => {
                     </>
                 ) : (
                     <div className="empty-state-container">
-                        <motion.div animate={{y: [0, -8, 0]}} transition={{repeat: Infinity, duration: 3, ease: "easeInOut"}}>
+                        <motion.div animate={{ y: [0, -8, 0] }} transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}>
                             <FaShieldAlt className="empty-state-icon" />
                         </motion.div>
                         <h4 className="empty-state-title">Terminal Standby</h4>
-                        <p className="empty-state-desc" style={{fontSize: '13px'}}>Select an anonymous case from the <b>Waiting Queue</b> to assign it to yourself.</p>
+                        <p className="empty-state-desc" style={{ fontSize: '13px' }}>Select an anonymous case from the <b>Waiting Queue</b> to assign it to yourself.</p>
                     </div>
                 )}
             </div>
@@ -399,14 +465,17 @@ const ExpertChat = () => {
 const ContactCard = ({ contact, msgs, isActive, onClick, isWaiting, isResolved }) => {
     const validMsgs = msgs.filter(m => m.content !== '[SYS:CLOSED]' && !m.content.startsWith('🚨 [SYSTEM ALERT]'));
     const lastMsg = validMsgs[validMsgs.length - 1];
-    const avatarLetter = contact.includes("-") ? contact.split("-")[1].charAt(0) : 'C';
+
+    // 🔥 MASKED USERNAME IN SIDEBAR LIST
+    const displayId = maskUsername(contact);
+    const avatarLetter = displayId.split("-")[1]?.charAt(0) || 'C';
 
     return (
-        <motion.div 
-            layout 
-            initial={{opacity:0, x:-15}} 
-            animate={{opacity:1, x:0}} 
-            exit={{opacity:0, height: 0, padding: 0, margin: 0}}
+        <motion.div
+            layout
+            initial={{ opacity: 0, x: -15 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, height: 0, padding: 0, margin: 0 }}
             transition={{ type: "spring", stiffness: 400, damping: 25 }}
             className={`contact-card ${isActive ? 'active-card' : ''}`} onClick={onClick}
         >
@@ -417,7 +486,7 @@ const ContactCard = ({ contact, msgs, isActive, onClick, isWaiting, isResolved }
                 {!isWaiting && !isResolved && <FaCircle className="status-dot success-dot" />}
             </div>
             <div className="contact-info">
-                <h4>{contact}</h4>
+                <h4>{displayId}</h4>
                 <p className="last-msg">
                     {lastMsg?.fileUrl ? "📷 Image Attached" : lastMsg?.content}
                 </p>

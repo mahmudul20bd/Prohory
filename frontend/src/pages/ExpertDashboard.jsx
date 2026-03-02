@@ -97,28 +97,22 @@ function ExpertDashboard() {
       () => {
         stompClientRef.current = client;
 
-        // 🔥 FIX: We use /topic/alerts because it sends the full Report object (including Region & ID)
-        // 🔥 FIX: We use /topic/alerts and parse both manual reports and background telemetry
         client.subscribe("/topic/alerts", (notification) => {
           const data = JSON.parse(notification.body);
           console.log("📢 Alert Received in Expert Dashboard:", data);
 
           let parsedReport = null;
 
-          // Condition 1: Manual Report (এতে 'report' অবজেক্ট থাকে)
           if (data.report) {
             parsedReport = data.report;
           }
-          // Condition 2: Background Telemetry (এতে সরাসরি region, type, heatPoints থাকে)
           else if (data.region && data.type) {
             const typeUpper = data.type.toUpperCase();
             let aiResultStr = "SAFE";
 
-            // DANGER/SCAM/PHISHING অথবা heatPoints >= 5 হলে
             if (typeUpper.includes("DANGER") || typeUpper.includes("SCAM") || typeUpper.includes("PHISHING") || data.heatPoints >= 5) {
               aiResultStr = "DANGER";
             }
-            // SPAM অথবা heatPoints >= 3 হলে
             else if (typeUpper.includes("SPAM") || data.isSpam || data.heatPoints >= 3) {
               aiResultStr = "SPAM";
             }
@@ -135,10 +129,8 @@ function ExpertDashboard() {
             const animId = Date.now() + Math.random();
             const threatWithAnim = { ...parsedReport, animId };
 
-            // Add to Map Animation
             setActiveThreatsOnMap(prev => [...prev, threatWithAnim]);
 
-            // 🔥 Remove after 8 seconds (৮ সেকেন্ড পর্যন্ত ম্যাপে দেখাবে)
             setTimeout(() => {
               setActiveThreatsOnMap(prev => prev.filter(t => t.animId !== animId));
             }, 8000);
@@ -285,29 +277,42 @@ function ExpertDashboard() {
     return 0;
   });
 
+  // 🔥 FIX: Correctly Route Uploads vs Text Scans to prevent Server Error
   const handleFileScan = async () => {
     if (!selectedFile && !scanInput) return alert("Please select a file or enter a hash/URL!");
     setScanning(true); setScanResult(null);
 
-    const formData = new FormData();
-    if (selectedFile) formData.append("file", selectedFile);
-    if (scanInput) formData.append("hash", scanInput);
-
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const res = await axios.post("https://cyber-aware.onrender.com/api/scan/image", formData, config);
+      let res;
+
+      if (selectedFile) {
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+          formData.append("username", username);
+          res = await axios.post("https://cyber-aware.onrender.com/api/scan/image", formData, config);
+      } else {
+          res = await axios.post("https://cyber-aware.onrender.com/api/scan/text", {
+              message: scanInput,
+              username: username
+          }, config);
+      }
+
+      const finalResult = res.data.result || res.data.aiResult || "UNKNOWN";
 
       setTimeout(() => {
         setScanResult({
-          status: res.data.result === 'SAFE' ? 'SAFE' : 'DANGER',
-          hash: "Generated via AI",
-          threatType: res.data.result,
+          status: finalResult === 'SAFE' ? 'SAFE' : 'DANGER',
+          hash: selectedFile ? "Generated via AI File Scan" : "Hash/URL Extracted",
+          threatType: finalResult,
           confidence: "98%"
         });
         setScanning(false);
       }, 1500);
     } catch (error) {
-      setScanning(false); alert("Scan Failed! Server Error.");
+      console.error(error);
+      setScanning(false); 
+      alert("Scan Failed! Please check your input or server connection.");
     }
   };
 
@@ -344,28 +349,45 @@ function ExpertDashboard() {
         )}
       </AnimatePresence>
 
-      <aside className="sidebar" style={{ zIndex: 100 }}>
-        <div className="brand-section">
-          <h2 style={{ fontFamily: "Orbitron", fontWeight: "bold", letterSpacing: "2px", color: "#fff", margin: 0 }}>
-            PRO<span style={{ color: "#00E5FF" }}>HORY</span>
-          </h2>
-          <small className="text-secondary" style={{ fontSize: '11px', letterSpacing: '1px' }}>EXPERT COMMAND</small>
+      <aside className="sidebar d-flex flex-column" style={{ zIndex: 100 }}>
+        <div>
+            <div className="brand-section">
+              <h2 style={{ fontFamily: "Orbitron", fontWeight: "bold", letterSpacing: "2px", color: "#fff", margin: 0 }}>
+                PRO<span style={{ color: "#00E5FF" }}>HORY</span>
+              </h2>
+              <small className="text-secondary" style={{ fontSize: '11px', letterSpacing: '1px' }}>EXPERT COMMAND</small>
+            </div>
+
+            <ul className="nav-links mt-4">
+              <li className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}><FaChartLine size={17} /> DASHBOARD</li>
+              <li className={`nav-item ${activeTab === "threat-map" ? "active" : ""}`} onClick={() => setActiveTab("threat-map")}><FaGlobe size={17} /> THREAT MAP</li>
+              <li className={`nav-item ${activeTab === "malware" ? "active" : ""}`} onClick={() => setActiveTab("malware")}><FaBug size={17} /> MALWARE LAB</li>
+              <li className={`nav-item ${activeTab === "chat" ? "active" : ""}`} onClick={() => setActiveTab("chat")}><FaComments size={17} /> LIVE CHAT</li>
+
+              <li className={`nav-item ${activeTab === "profile" ? "active" : ""}`} onClick={() => setActiveTab("profile")}><FaIdBadge size={17} /> PUBLIC PROFILE</li>
+
+              <li className={`nav-item ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}><FaCog size={17} /> SETTINGS</li>
+            </ul>
         </div>
 
-        <ul className="nav-links mt-4">
-          <li className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}><FaChartLine size={17} /> DASHBOARD</li>
-          <li className={`nav-item ${activeTab === "threat-map" ? "active" : ""}`} onClick={() => setActiveTab("threat-map")}><FaGlobe size={17} /> THREAT MAP</li>
-          <li className={`nav-item ${activeTab === "malware" ? "active" : ""}`} onClick={() => setActiveTab("malware")}><FaBug size={17} /> MALWARE LAB</li>
-          <li className={`nav-item ${activeTab === "chat" ? "active" : ""}`} onClick={() => setActiveTab("chat")}><FaComments size={17} /> LIVE CHAT</li>
+        {/* 🔥 FIX: Added Expert Profile Indicator Above Terminate Button */}
+        <div className="mt-auto">
+            <div className="user-profile-mini mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: '20px 0 0 0' }}>
+              <div className="d-flex align-items-center gap-3">
+                <div style={{background: 'rgba(0, 229, 255, 0.1)', padding: '10px', borderRadius: '50%'}}>
+                  <FaUserShield style={{ color: "#00E5FF", fontSize: '1.5rem' }} />
+                </div>
+                <div>
+                  <h6 style={{ color: "#fff", margin: 0, fontWeight: 'bold', fontSize: '14px' }}>{username}</h6>
+                  <small style={{ color: "#00E5FF", fontSize: '10px', letterSpacing: '1px' }}>EXPERT UNIT</small>
+                </div>
+              </div>
+            </div>
 
-          <li className={`nav-item ${activeTab === "profile" ? "active" : ""}`} onClick={() => setActiveTab("profile")}><FaIdBadge size={17} /> PUBLIC PROFILE</li>
-
-          <li className={`nav-item ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}><FaCog size={17} /> SETTINGS</li>
-        </ul>
-
-        <button onClick={handleLogout} className="btn btn-outline-danger w-100" style={{ fontSize: '13px', fontWeight: '600', padding: '12px' }}>
-          <FaSignOutAlt className="me-2" /> TERMINATE
-        </button>
+            <button onClick={handleLogout} className="btn btn-outline-danger w-100" style={{ fontSize: '13px', fontWeight: '600', padding: '12px' }}>
+              <FaSignOutAlt className="me-2" /> TERMINATE
+            </button>
+        </div>
       </aside>
 
       <main className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -462,8 +484,6 @@ function ExpertDashboard() {
                 <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap" />
                 {geoData && <GeoJSON data={geoData} style={{ color: '#00E5FF', weight: 1.5, fillOpacity: 0.05 }} />}
 
-                {/* 🔥 Show ONLY Real-Time Active Threats */}
-                {/* 🔥 Show ONLY Real-Time Active Threats */}
                 {activeThreatsOnMap.map((r) => {
                   const regionKey = r.region ? r.region.charAt(0).toUpperCase() + r.region.slice(1).toLowerCase() : "Dhaka";
                   let coords = divisionCoordinates[regionKey] || divisionCoordinates["Dhaka"];
@@ -475,18 +495,16 @@ function ExpertDashboard() {
                   const isDanger = ["DANGER", "SCAM"].includes(aiResult);
                   const isSpam = ["SPAM", "SUSPICIOUS"].includes(aiResult);
 
-                  // 🔥 কালার এবং রাডার ক্লাস সিলেক্ট করার লজিক
                   let radarClass = 'pulse-info';
                   let colorHex = '#00f3ff';
                   if (isDanger) {
                     radarClass = 'pulse-danger';
-                    colorHex = '#ff003c'; // Red
+                    colorHex = '#ff003c'; 
                   } else if (isSpam) {
                     radarClass = 'pulse-warning';
-                    colorHex = '#ffca00'; // Yellow
+                    colorHex = '#ffca00'; 
                   }
 
-                  // 🔥 নতুন সুন্দর রাডার অ্যানিমেশন আইকন
                   const customPulsingIcon = new L.divIcon({
                     className: `custom-radar-icon ${radarClass}`,
                     html: `
@@ -567,12 +585,12 @@ function ExpertDashboard() {
                       <label className="text-light mb-2" style={{ fontSize: '12px', fontWeight: '600' }}>SCAN URL OR HASH</label>
                       <div className="input-group">
                         <span className="input-group-text bg-dark border-secondary text-secondary"><FaLink /></span>
-                        <input type="text" className="form-control bg-dark text-white border-secondary" placeholder="e.g. 44d88612fea8a8f36de82e1278abb02f" value={scanInput} onChange={(e) => setScanInput(e.target.value)} />
+                        <input type="text" className="form-control bg-dark text-white border-secondary" placeholder="e.g. https://suspicious-link.com" value={scanInput} onChange={(e) => setScanInput(e.target.value)} />
                       </div>
                     </div>
                     <div className="col-12 text-center my-2"><small className="text-secondary">OR</small></div>
                     <div className="col-12">
-                      <input type="file" id="fileInput" className="d-none" onChange={(e) => setSelectedFile(e.target.files[0])} />
+                      <input type="file" id="fileInput" className="d-none" onChange={(e) => {setSelectedFile(e.target.files[0]); setScanInput('');}} />
                       <label htmlFor="fileInput" className="w-100 p-4 rounded d-flex flex-column align-items-center justify-content-center transition-all" style={{ border: "2px dashed #334155", cursor: "pointer", background: selectedFile ? "rgba(59, 130, 246, 0.1)" : "rgba(0,0,0,0.2)" }}>
                         {selectedFile ? (
                           <><FaCheckCircle className="fs-3 text-success mb-2" /><h6 className="text-info m-0">{selectedFile.name}</h6></>
@@ -603,7 +621,7 @@ function ExpertDashboard() {
                       </h5>
                       <div className="text-light" style={{ fontSize: '13px', lineHeight: '2' }}>
                         <div className="d-flex justify-content-between border-bottom border-secondary pb-1 mb-1">
-                          <span className="text-secondary">File Hash (MD5):</span> <span>{scanResult.hash}</span>
+                          <span className="text-secondary">Scan Type:</span> <span>{scanResult.hash}</span>
                         </div>
                         <div className="d-flex justify-content-between border-bottom border-secondary pb-1 mb-1">
                           <span className="text-secondary">Threat Signature:</span> <span>{scanResult.threatType}</span>
