@@ -11,8 +11,8 @@ android {
         applicationId = "com.cyberaware.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "4.4.6"
+        versionCode = 8
+        versionName = "6.5.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
