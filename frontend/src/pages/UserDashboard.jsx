@@ -22,6 +22,8 @@ import '../styles/Dashboard.css';
 import Settings from './Settings';
 import UserChat from './UserChat';
 
+const cartoKey = import.meta.env.VITE_CARTO_API_KEY;
+
 // 🔥 Division Coordinates for mapping threats
 const divisionCoordinates = {
   "Dhaka": [23.8103, 90.4125],
@@ -611,7 +613,10 @@ function UserDashboard() {
                 style={{ height: '100%', width: '100%', background: '#02040a' }}
                 zoomControl={true} scrollWheelZoom={false} dragging={true} doubleClickZoom={true} touchZoom={false}
               >
-                <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; OpenStreetMap" />
+               <TileLayer
+                url={`https://basemaps.cartocdn.com/rastertiles/voyager/15/16046/12355.png?key=${cartoKey}`}
+                attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+                />
                 {geoData && <GeoJSON data={geoData} style={{ color: '#00E5FF', weight: 1.5, fillOpacity: 0.05 }} />}
 
                 {/* 🔥 REAL-TIME DYNAMIC MARKERS ONLY */}
